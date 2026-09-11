@@ -95,6 +95,26 @@ JTAG-Debugger erforderlich wird, prüfen wir dessen Verdrahtung und
 Konfiguration separat. Irreversible eFuse-Änderungen zur JTAG-Umschaltung
 werden nicht vorgenommen, ohne dies vorher gemeinsam zu entscheiden.
 
+## Preconditions
+
+Vor dem ersten Build müssen die folgenden Voraussetzungen erfüllt und geprüft
+sein:
+
+- WSL mit einer unterstützten Linux-Distribution und VS Code mit WSL-Anbindung
+- Zephyr-Host-Tools: mindestens CMake, Ninja, Python 3, Git und Devicetree
+  Compiler (`dtc`)
+- ein isoliertes Python Virtual Environment mit `west` und den
+  Zephyr-Python-Abhängigkeiten
+- ein separater Zephyr-Workspace mit Zephyr-Quellen und den benötigten Modulen
+- installierte Zephyr SDK mit Xtensa-Toolchain für den ESP32-S3
+- ein bestimmtes Zephyr-Board-Target einschließlich der zum ESP32-S3-Zero
+  passenden Flash-, PSRAM- und Devicetree-Konfiguration
+- für Flashen und Debugging: Zugriff von WSL auf die USB-Geräte
+
+Die Anwendung verbleibt in diesem Repository; der Zephyr-Workspace wird
+getrennt davon geführt. Die aktuelle Einrichtung folgt der
+[Zephyr Getting Started Guide](https://docs.zephyrproject.org/latest/develop/getting_started/).
+
 ## Entwicklungsreihenfolge
 
 1. Zephyr-Projekt und Build/Flash für das ESP32-S3-Zero verifizieren.
