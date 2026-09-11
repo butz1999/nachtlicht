@@ -1,8 +1,10 @@
 #include <zephyr/kernel.h>
+#include <zephyr/sys/atomic.h>
 #include <zephyr/sys/printk.h>
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 
 #include "rgb_led/rgb_led.hpp"
 
@@ -19,18 +21,48 @@ rgb_led::RgbLed led;
 struct k_work_delayable color_work;
 std::size_t color_index;
 
-void update_color(struct k_work *work)
+struct k_work render_work;
+
+constexpr std::uint8_t kBrightnessOn = 32U;
+constexpr std::uint8_t kBrightnessOff = 0U;
+constexpr std::uint16_t kBrightnessMaximum = 255U;
+atomic_t brightness = ATOMIC_INIT(kBrightnessOn);
+struct k_timer brightness_timer;
+
+rgb_led::Color current_color;
+
+void render_color(struct k_work *work)
 {
   ARG_UNUSED(work);
+  rgb_led::Color c = current_color;
+  const auto brightness_value = static_cast<std::uint8_t>(atomic_get(&brightness));
 
-  const auto result = led.set(kTestColors[color_index]);
+  c.red = static_cast<std::uint8_t>((static_cast<std::uint16_t>(c.red) * brightness_value) / kBrightnessMaximum);
+  c.green = static_cast<std::uint8_t>((static_cast<std::uint16_t>(c.green) * brightness_value) / kBrightnessMaximum);
+  c.blue = static_cast<std::uint8_t>((static_cast<std::uint16_t>(c.blue) * brightness_value) / kBrightnessMaximum);
+
+  const auto result = led.set(c);
   if (result != 0)
   {
     printk("RGB LED update failed: %d\n", result);
   }
+}
 
+void update_brightness(struct k_timer *timer)
+{
+  ARG_UNUSED(timer);
+  const auto next_brightness = atomic_get(&brightness) == kBrightnessOn ? kBrightnessOff : kBrightnessOn;
+  atomic_set(&brightness, next_brightness);
+  k_work_submit(&render_work);
+}
+
+void update_color(struct k_work *work)
+{
+  ARG_UNUSED(work);
+  current_color = kTestColors[color_index];
   color_index = (color_index + 1U) % kTestColors.size();
-  k_work_schedule(&color_work, K_SECONDS(1));
+  k_work_schedule(&color_work, K_MSEC(1000));
+  k_work_submit(&render_work);
 }
 
 }  // namespace
@@ -48,7 +80,11 @@ int main()
 
   printk("RGB LED test started.\n");
   k_work_init_delayable(&color_work, update_color);
+  k_work_init(&render_work, render_color);
+  k_timer_init(&brightness_timer, update_brightness, nullptr);
+
   k_work_schedule(&color_work, K_NO_WAIT);
+  k_timer_start(&brightness_timer, K_MSEC(500), K_MSEC(500));
 
   return 0;
 }

@@ -398,6 +398,35 @@ Der Test verwendet genau ein Pixel und keine Heap-Allokation. Die
 WS2812-spezifische Farbfolge ist im Devicetree als RGB beschrieben; die
 `RgbLed::Color`-Schnittstelle bleibt dagegen in der fachlichen RGB-Reihenfolge.
 
+### Blink-Helligkeit
+
+Ein periodischer Zephyr-Timer schaltet die sichtbare Helligkeit unabhängig von
+der Grundfarbe zwischen `0` (aus) und
+`32` von `255` (etwa 12,5 Prozent) um. Die Umschaltung erfolgt alle 500 ms.
+Der Farbwechsel bleibt bei einer Sekunde.
+
+Der Timer-Callback steuert die LED nicht direkt, weil er im Timer- bzw.
+Interrupt-nahen Kontext läuft. Er ändert ausschließlich den atomar
+zugreifbaren Helligkeitszustand und reicht Render-Arbeit an die System-
+Workqueue weiter. Nur ein Workqueue-Handler darf `RgbLed::set()` aufrufen.
+
+```text
+color_work (1 s) ──> Grundfarbe ändern ──────┐
+                                              ├──> render_work ──> RgbLed::set()
+blink_timer (500 ms) ──> Helligkeit 0 ↔ 64 ──┘
+```
+
+`render_work` kombiniert Grundfarbe und Helligkeit: Bei `0` schreibt er
+Schwarz, ansonsten skaliert er jede RGB-Komponente mit dem Helligkeitswert.
+Da Farb- und Render-Work in derselben Workqueue laufen, greifen sie
+serialisiert auf die Grundfarbe zu. Der Timer teilt nur den atomaren
+Helligkeitszustand mit dem Render-Work. Dadurch gibt es weder blockierende
+Wartezeiten noch konkurrierende Hardwarezugriffe.
+
+Der LED-Test wechselt bei jeder Grundfarbe im Halbsekundenrhythmus zwischen aus
+und gedimmt. Der serielle Monitor darf dabei keine wiederkehrenden
+Fehlerdiagnosen ausgeben.
+
 ### Verifikation
 
 Der normale Ablauf bleibt lokal im Anwendungs-Repository:
