@@ -71,11 +71,29 @@ kein festgelegter Vertrag.
   keine globalen Hardware- oder Zenoh-Zugriffe.
 - Fehler werden als klare Rückgabewerte behandelt und seriell diagnostiziert.
 - Heap-Allokation wird vermieden.
+- Die Anwendung verwendet C++17. Weil `RgbLed` `std::array` nutzt, wird die
+  vollständige GNU-C++-Standardbibliothek eingebunden; der damit verbundene
+  Speicherbedarf wird bei späteren Firmware-Größenprüfungen berücksichtigt.
 
 ## Diagnose und Debugging
 
 Serielle Zephyr-Logs sind der Standard für die erste Inbetriebnahme und für
 Laufzeitdiagnosen. Sie werden vor einem Hardware-Debugger eingerichtet.
+
+### Quellnavigation in VS Code
+
+Die C/C++-Erweiterung (`ms-vscode.cpptools`) verwendet die nach einem Build
+erzeugte Datei `build/hello-world/compile_commands.json`. Sie enthält die
+exakten Compiler-Optionen sowie die Zephyr-, Treiber- und generierten Include-
+Pfade. Die versionierte Workspace-Konfiguration
+`.vscode/c_cpp_properties.json` verweist darauf. Dadurch funktioniert
+"Gehe zu Definition" (F12) auch für Zephyr-Header wie
+`<zephyr/kernel.h>`.
+
+Nach einem frischen Klon muss zuerst `./scripts/build.sh` laufen. Danach in
+VS Code einmal `Developer: Reload Window` ausführen, falls die Navigation
+nicht unmittelbar aktualisiert wurde. Die C/C++-Erweiterung muss installiert
+und aktiviert sein; CMake Tools ist dafür nicht erforderlich.
 
 Für Quellcode-Debugging ist VS Code mit der Erweiterung
 [IDE for Zephyr](https://docs.zephyrproject.org/latest/develop/tools/ide_for_zephyr_vscode_ext.html)
@@ -117,20 +135,20 @@ Verfahren in zwei Umgebungen:
    anhängen:
 
    ```powershell
-usbipd attach --wsl --busid <bus-id>
-```
+   usbipd attach --wsl --busid <bus-id>
+   ```
 
-Bei wiederholten Hardware-Resets kann stattdessen der Auto-Attach-Modus
-verwendet werden:
+   Bei wiederholten Hardware-Resets kann stattdessen der Auto-Attach-Modus
+   verwendet werden:
 
-```powershell
-usbipd attach --wsl --busid <bus-id> --auto-attach
-```
+   ```powershell
+   usbipd attach --wsl --busid <bus-id> --auto-attach
+   ```
 
-Der PowerShell-Prozess bleibt dabei geöffnet und hängt das Board nach einem
-USB-Reset erneut an WSL an. Diese Zuordnung gilt nur für die laufende Sitzung;
-nach einem Windows-Neustart oder dem Beenden des Prozesses muss sie erneut
-gestartet werden.
+   Der PowerShell-Prozess bleibt dabei geöffnet und hängt das Board nach einem
+   USB-Reset erneut an WSL an. Diese Zuordnung gilt nur für die laufende Sitzung;
+   nach einem Windows-Neustart oder dem Beenden des Prozesses muss sie erneut
+   gestartet werden.
 
 3. In WSL den Zugriff prüfen:
 
@@ -332,6 +350,69 @@ ESP_DEVICE=/dev/ttyACM1 \
 Die Skripte laden oder installieren keine Abhängigkeiten und verändern den
 Zephyr-Workspace nicht, abgesehen von den normalen CMake- und Build-Caches.
 
+## Onboard-WS2812
+
+### Ziel und Schnittstelle
+
+Der ESP32-S3-Zero besitzt eine einzelne WS2812-RGB-LED an GPIO21. Die
+Komponente `RgbLed` kapselt den Zugriff darauf und bietet eine kleine,
+hardwareunabhängige C++-Schnittstelle:
+
+```text
+RgbLed::initialize()       prüft den über Devicetree beschriebenen Aktor
+RgbLed::set(Color)         übergibt einen RGB-Wert an den Zephyr-Treiber
+```
+
+Beide Operationen liefern einen Zephyr-Fehlercode zurück. `RgbLed` kennt weder
+die Anwendung noch Netzwerk oder Zenoh. Die Anwendung verantwortet den
+Farbtest und schreibt Fehler auf die serielle Konsole.
+
+### Hardware- und Treiberentscheidung
+
+Die WS2812 wird über den Zephyr-Treiber `worldsemi,ws2812-pulse-io`
+angesteuert. Der Treiber kodiert das WS2812-Protokoll und verwendet den
+hardwareseitigen RMT-TX-Kanal 0 des ESP32-S3. Das Board-Overlay ordnet dessen
+Ausgang über `RMT_OUT0_GPIO21` dem Datenpin der Onboard-LED zu.
+
+```text
+Application ── RgbLed ── led_strip API ── WS2812 pulse_io driver
+                                            │
+                                     ESP32-S3 RMT TX0
+                                            │
+                                          GPIO21
+```
+
+RMT erzeugt die zeitkritischen High-/Low-Pulse per Hardware. Deshalb verwendet
+die Anwendung weder Bit-Banging noch eine blockierende Warteschleife. Die
+USB-Serial/JTAG-Konsole bleibt unabhängig davon auf dem nativen USB-Port.
+
+### Farbtest und Ablauf
+
+Nach erfolgreicher Initialisierung setzt die Anwendung rot, grün und blau in
+einem Sekundenrhythmus. Ein `k_work_delayable` plant die nächste Aktualisierung
+auf der Zephyr-System-Workqueue. Dadurch bleibt `main()` nach der
+Initialisierung frei und der Ablauf ist später ohne Architekturbruch durch
+Commands oder Zustandsänderungen ersetzbar.
+
+Der Test verwendet genau ein Pixel und keine Heap-Allokation. Die
+WS2812-spezifische Farbfolge ist im Devicetree als RGB beschrieben; die
+`RgbLed::Color`-Schnittstelle bleibt dagegen in der fachlichen RGB-Reihenfolge.
+
+### Verifikation
+
+Der normale Ablauf bleibt lokal im Anwendungs-Repository:
+
+```bash
+./scripts/build.sh
+./scripts/flash.sh
+./scripts/monitor.sh
+```
+
+Erwartet werden die seriellen Initialisierungsdiagnosen und ein sichtbarer,
+periodischer Wechsel der Onboard-LED zwischen rot, grün und blau. Bei einem
+Hardware-Reset muss die WSL-USB-Anbindung weiterhin aktiv sein; während der
+Entwicklung wird dafür `usbipd --auto-attach` verwendet.
+
 ## Entwicklungsreihenfolge
 
 1. Zephyr-Projekt und Build/Flash für das ESP32-S3-Zero verifizieren.
@@ -345,8 +426,16 @@ Zephyr-Workspace nicht, abgesehen von den normalen CMake- und Build-Caches.
 ## Offene Entscheidungen
 
 - Zephyr-Board-Target und Board-spezifisches Devicetree-Overlay
-- Treiber- und Konfiguration der WS2812 unter Zephyr
 - Wi-Fi-Konfiguration und Umgang mit Zugangsdaten
 - Einbindung, Speicherbedarf und Threading-Modell von zenoh-pico
 - Key Expressions, Payload-Schema, Versionsstrategie und Fehlervertrag
 - Teststrategie auf Host und Hardware
+
+## Referenzen
+
+- [ESP32-S3 Datasheet (PDF)](https://documentation.espressif.com/esp32_s3_datasheet_en.pdf)
+  – Pinbelegung, elektrische Daten und Überblick über die Peripherie.
+- [ESP32-S3 Technical Reference Manual (PDF)](https://www.espressif.com/sites/default/files/documentation/esp32-s3_technical_reference_manual_en.pdf)
+  – Details zur RMT-Peripherie und GPIO-Matrix.
+- [Espressif: Technical Documents](https://espressif.com/en/support/download/documents)
+  – zentrale Download-Seite für die jeweils aktuellen Dokumentversionen.

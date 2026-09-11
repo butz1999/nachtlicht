@@ -1,10 +1,38 @@
+#include <zephyr/dt-bindings/led/led.h>
+
 / {
-  chosen {
-    zephyr,console = &usb_serial;
-    zephyr,shell-uart = &usb_serial;
-  };
+	chosen {
+		zephyr,console = &usb_serial;
+		zephyr,shell-uart = &usb_serial;
+	};
+
+	aliases {
+		led-strip = &onboard_ws2812;
+	};
+
+	onboard_ws2812: ws2812 {
+		compatible = "worldsemi,ws2812-pulse-io";
+		pulse-ios = <&rmt 0>;
+		chain-length = <1>;
+		color-mapping = <LED_COLOR_ID_RED LED_COLOR_ID_GREEN LED_COLOR_ID_BLUE>;
+		reset-delay = <300>;
+	};
 };
 
 &usb_serial {
-  status = "okay";
+	status = "okay";
+};
+
+&pinctrl {
+	rmt_ws2812: rmt_ws2812 {
+		group1 {
+			pinmux = <RMT_OUT0_GPIO21>;
+		};
+	};
+};
+
+&rmt {
+	pinctrl-0 = <&rmt_ws2812>;
+	pinctrl-names = "default";
+	status = "okay";
 };

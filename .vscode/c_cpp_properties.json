@@ -1,0 +1,9 @@
+{
+  "configurations": [
+    {
+      "name": "ESP32-S3 Zephyr",
+      "compileCommands": "${workspaceFolder}/build/hello-world/compile_commands.json"
+    }
+  ],
+  "version": 4
+}
