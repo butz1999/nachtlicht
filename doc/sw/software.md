@@ -95,6 +95,60 @@ JTAG-Debugger erforderlich wird, prüfen wir dessen Verdrahtung und
 Konfiguration separat. Irreversible eFuse-Änderungen zur JTAG-Umschaltung
 werden nicht vorgenommen, ohne dies vorher gemeinsam zu entscheiden.
 
+### USB-Gerät aus Windows an WSL anhängen
+
+Das ESP32-S3-Zero wird physisch an Windows angeschlossen. Damit Flash- und
+serielle Werkzeuge in WSL darauf zugreifen können, wird das USB-Gerät mit
+`usbipd-win` an die WSL-2-VM durchgereicht. Während es an WSL angehängt ist,
+kann Windows nicht gleichzeitig auf das Gerät zugreifen.
+
+Vor dem Anfügen bleibt ein WSL-Terminal geöffnet. Anschließend erfolgt das
+Verfahren in zwei Umgebungen:
+
+1. In einer als Administrator gestarteten Windows-PowerShell das Board suchen
+   und anhand seiner Bus-ID einmalig freigeben:
+
+   ```powershell
+   usbipd list
+   usbipd bind --busid <bus-id>
+   ```
+
+2. In einer normalen Windows-PowerShell das freigegebene Board an WSL
+   anhängen:
+
+   ```powershell
+usbipd attach --wsl --busid <bus-id>
+```
+
+Bei wiederholten Hardware-Resets kann stattdessen der Auto-Attach-Modus
+verwendet werden:
+
+```powershell
+usbipd attach --wsl --busid <bus-id> --auto-attach
+```
+
+Der PowerShell-Prozess bleibt dabei geöffnet und hängt das Board nach einem
+USB-Reset erneut an WSL an. Diese Zuordnung gilt nur für die laufende Sitzung;
+nach einem Windows-Neustart oder dem Beenden des Prozesses muss sie erneut
+gestartet werden.
+
+3. In WSL den Zugriff prüfen:
+
+   ```bash
+   lsusb
+   ```
+
+Nach erfolgreicher Prüfung können `west flash` und der serielle Monitor das
+Gerät aus WSL verwenden. Nach der Arbeit wird es entweder physisch getrennt
+oder in Windows-PowerShell wieder abgehängt:
+
+```powershell
+usbipd detach --busid <bus-id>
+```
+
+Die konkrete Bus-ID wird nicht dokumentiert, da sie sich beim Umstecken ändern
+kann. Für das Verfahren sind WSL 2 und `usbipd-win` erforderlich.
+
 ## Preconditions
 
 Vor dem ersten Build müssen die folgenden Voraussetzungen erfüllt und geprüft
@@ -194,6 +248,89 @@ Das Hello World weist ausschließlich nach, dass der Zephyr-Build, das Flashen
 und die serielle Diagnose auf dem ESP32-S3 funktionieren. Erst danach wird die
 Onboard-WS2812 angesteuert; Netzwerk und Zenoh bleiben bewusst außerhalb dieses
 ersten Schritts.
+
+## Hello World
+
+### Ziel und Schnittstelle
+
+Die erste Anwendung beweist den vollständigen minimalen Pfad von der
+C++-Quelldatei bis zur seriellen Diagnose. `src/main.cpp` ist ihr einziger
+Anwendungseinstieg. Die Funktion `main()` gibt nach dem Zephyr-Start genau eine
+Diagnosezeile mit `printk()` aus und beendet sich anschließend. Zephyr hält das
+System danach im Idle-Zustand am Leben.
+
+Die Ausgabe ist keine fachliche Schnittstelle und besitzt keinen stabilen
+Textvertrag. Sie dient ausschließlich als eindeutiger, von der Hardware
+unabhängiger Inbetriebnahmenachweis.
+
+### Konfiguration und Abgrenzung
+
+`CMakeLists.txt` bindet die Anwendung über `find_package(Zephyr)` an den
+separaten Zephyr-Workspace. `prj.conf` aktiviert C++ sowie die Konsolen- und
+`printk()`-Ausgabe. Das vorläufige Build-Target lautet
+`esp32s3_devkitc/esp32s3/procpu`. Da dessen Standardkonfiguration von 8 MB
+Flash ausgeht, ergänzt der Build das Zephyr-Snippet `espressif-flash-4M` für
+den tatsächlich vorhandenen 4-MB-Flash des ESP32-S3-Zero.
+
+Hello World enthält absichtlich weder eine eigene Komponente noch
+Threads, Netzwerk, Zenoh oder Hardwarezugriffe. Das minimale lokale
+Board-Overlay aktiviert ausschließlich die eingebaute USB-Serial/JTAG-Schnittstelle
+als Zephyr-Konsole. Dadurch wird die Ausgabe über den nativen USB-C-Anschluss
+des Zero sichtbar, ohne GPIOs für den späteren WS2812-Treiber festzulegen.
+
+### Verifikation
+
+Der reproduzierbare pristine Build wird aus dem Zephyr-Workspace gestartet;
+seine Artefakte bleiben im Anwendungs-Repository unter `build/hello-world`:
+
+```bash
+source ~/.venvs/zephyr/bin/activate
+cd ~/git/zephyrproject/zephyr
+west build -p always -d ~/git/nachtlicht/build/hello-world \
+  -b esp32s3_devkitc/esp32s3/procpu -S espressif-flash-4M \
+  ~/git/nachtlicht
+```
+
+Die erzeugte `zephyr.elf` dient dem Debugging; `zephyr.bin` ist die Firmware
+für das Flashen. Beide sind abgeleitete Build-Artefakte und werden nicht in
+Git versioniert. Der anschließende Hardwaretest umfasst Flashen und die
+Beobachtung der Ausgabe über den seriellen Monitor. Der USB-Zugriff aus WSL
+ist dafür noch separat zu prüfen.
+
+Der Hardwaretest wurde am 11. September 2026 erfolgreich durchgeführt. Das
+ESP32-S3-Zero wurde über USB-Serial/JTAG aus WSL erkannt, die Firmware mit
+4-MB-Flash-Konfiguration geflasht und die Zephyr-Bootmeldung sowie
+`Hello World from nachtlicht!` auf `/dev/ttyACM0` empfangen.
+
+### Lokale Build-Hilfsskripte
+
+Die wiederkehrenden Zephyr-Kommandos werden über Skripte im
+Anwendungs-Repository aufgerufen. Damit bleibt `nachtlicht` der
+Arbeitsordner; die Skripte wechseln selbst in den externen Zephyr-Workspace,
+weil dort die `west`-Erweiterungen verfügbar sind.
+
+| Skript | Aufgabe |
+| --- | --- |
+| `./scripts/build.sh` | Erstellt oder aktualisiert die 4-MB-USB-Serial/JTAG-Firmware. |
+| `./scripts/flash.sh` | Flasht die vorhandene Firmware auf das USB-Gerät. |
+| `./scripts/monitor.sh` | Öffnet den seriellen Monitor für die vorhandene ELF-Datei. |
+
+Standardmäßig verwenden die Skripte den Workspace
+`~/git/zephyrproject`, das Virtual Environment `~/.venvs/zephyr` und
+`/dev/ttyACM0`. Sie setzen dessen `bin`-Verzeichnis selbst auf `PATH`; ein
+vorheriges `source ~/.venvs/zephyr/bin/activate` ist daher nicht erforderlich.
+Bei abweichender Einrichtung können diese Werte ohne Änderung am Repository
+überschrieben werden:
+
+```bash
+ZEPHYR_WORKSPACE=/pfad/zu/zephyrproject \
+WEST_BIN=/pfad/zu/west \
+ESP_DEVICE=/dev/ttyACM1 \
+./scripts/flash.sh
+```
+
+Die Skripte laden oder installieren keine Abhängigkeiten und verändern den
+Zephyr-Workspace nicht, abgesehen von den normalen CMake- und Build-Caches.
 
 ## Entwicklungsreihenfolge
 
