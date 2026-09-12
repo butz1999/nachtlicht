@@ -33,3 +33,4 @@ apply_patch() {
 
 apply_patch "${patch_dir}/0001-zephyr-version-header.patch"
 apply_patch "${patch_dir}/0002-zephyr-generate-config.patch"
+apply_patch "${patch_dir}/0003-zephyr-pthread-attribute-lifetime.patch"

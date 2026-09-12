@@ -9,6 +9,7 @@
 
 #include "connectivity/connectivity.hpp"
 #include "rgb_led/rgb_led.hpp"
+#include "zenoh_client/zenoh_client.hpp"
 
 namespace
 {
@@ -26,6 +27,7 @@ constexpr std::array<rgb_led::Color, 6> kTestColors{{
 
 rgb_led::RgbLed led;
 connectivity::Connectivity network;
+zenoh_client::ZenohClient zenoh;
 struct k_work_delayable color_work;
 std::size_t color_index;
 
@@ -73,6 +75,12 @@ void update_color(struct k_work *work)
   k_work_submit(&render_work);
 }
 
+void start_zenoh(void *context)
+{
+  auto *const client = static_cast<zenoh_client::ZenohClient *>(context);
+  client->start();
+}
+
 }  // namespace
 
 int main()
@@ -94,7 +102,7 @@ int main()
   k_work_schedule(&color_work, K_NO_WAIT);
   k_timer_start(&brightness_timer, K_MSEC(500), K_MSEC(500));
 
-  const auto connectivity_result = network.initialize();
+  const auto connectivity_result = network.initialize(start_zenoh, &zenoh);
   if (connectivity_result != 0)
   {
     printk("Connectivity initialization failed: %d\n", connectivity_result);

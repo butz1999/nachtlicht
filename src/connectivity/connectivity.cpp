@@ -24,6 +24,8 @@ constexpr std::uint64_t kIpv4Events = NET_EVENT_IPV4_ADDR_ADD;
 struct net_mgmt_event_callback wifi_callback;
 struct net_mgmt_event_callback ipv4_callback;
 struct wifi_connect_req_params connection_parameters;
+Connectivity::Ipv4ReadyCallback ipv4_ready_callback;
+void *ipv4_ready_context;
 
 bool report_connect_result(const struct net_mgmt_event_callback *callback)
 {
@@ -86,12 +88,16 @@ void ipv4_event_handler(struct net_mgmt_event_callback *callback, std::uint64_t 
   if (event == NET_EVENT_IPV4_ADDR_ADD)
   {
     report_ipv4_address(callback);
+    if (ipv4_ready_callback != nullptr)
+    {
+      ipv4_ready_callback(ipv4_ready_context);
+    }
   }
 }
 
 }  // namespace
 
-int Connectivity::initialize()
+int Connectivity::initialize(Ipv4ReadyCallback ready_callback, void *context)
 {
   const auto ssid_length = std::strlen(CONFIG_NACHTLICHT_WIFI_SSID);
   const auto psk_length = std::strlen(CONFIG_NACHTLICHT_WIFI_PSK);
@@ -113,6 +119,8 @@ int Connectivity::initialize()
   net_mgmt_add_event_callback(&wifi_callback);
   net_mgmt_init_event_callback(&ipv4_callback, ipv4_event_handler, kIpv4Events);
   net_mgmt_add_event_callback(&ipv4_callback);
+  ipv4_ready_callback = ready_callback;
+  ipv4_ready_context = context;
 
   connection_parameters = {};
   connection_parameters.ssid = reinterpret_cast<const std::uint8_t *>(CONFIG_NACHTLICHT_WIFI_SSID);

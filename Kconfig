@@ -17,4 +17,12 @@ config NACHTLICHT_WIFI_PSK
 	  WPA2 pre-shared key of the Wi-Fi network used by the connectivity
 	  demonstration.
 
+config NACHTLICHT_ZENOH_ROUTER
+	string "Zenoh router TCP locator"
+	default ""
+	help
+	  Explicit TCP locator of the Zenoh router, for example
+	  tcp/192.168.1.42:7447. This is kept in the local zenoh.conf file
+	  because the host address depends on the local network.
+
 endmenu

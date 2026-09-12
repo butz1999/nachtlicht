@@ -6,7 +6,9 @@ namespace connectivity
 class Connectivity
 {
  public:
-  int initialize();
+  using Ipv4ReadyCallback = void (*)(void *context);
+
+  int initialize(Ipv4ReadyCallback ipv4_ready_callback, void *context);
 };
 
 }  // namespace connectivity

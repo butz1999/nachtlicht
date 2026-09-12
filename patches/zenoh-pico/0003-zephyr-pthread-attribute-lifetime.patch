@@ -1,0 +1,19 @@
+diff --git a/src/system/zephyr/system.c b/src/system/zephyr/system.c
+--- a/src/system/zephyr/system.c
++++ b/src/system/zephyr/system.c
+@@ -156,14 +156,11 @@
+     }
+ 
+     rc = pthread_create(task, &tmp, fun, arg);
+-    int attr_rc = pthread_attr_destroy(&tmp);
+     if (rc != 0) {
++        (void)pthread_attr_destroy(&tmp);
+         _z_zephyr_task_release_stack(stack_slot);
+         _z_report_system_error(rc);
+         _Z_ERROR_RETURN(_Z_ERR_SYSTEM_GENERIC);
+     }
+-    if (attr_rc != 0) {
+-        _z_report_system_error(attr_rc);
+-    }
+ 
+     (void)pthread_mutex_lock(&thread_stack_mutex);

@@ -7,7 +7,7 @@ eine Arbeitsgrundlage und wird mit jeder Lernstufe präzisiert. Sie schreibt
 weder ein allgemeines Framework noch ein finales Produktprotokoll vor.
 
 Die bisherige Basis steuert die Onboard-WS2812 und stellt eine WLAN-Verbindung
-mit DHCP her. zenoh-pico ist als gepinntes Zephyr-Modul mit zwei dokumentierten
+mit DHCP her. zenoh-pico ist als gepinntes Zephyr-Modul mit drei dokumentierten
 Patches eingebunden; als nächste Stufe folgt der erste
 Zenoh-Verbindungsnachweis. Home Assistant folgt erst danach.
 
@@ -529,21 +529,29 @@ der Entwicklung wird dafür `usbipd --auto-attach` verwendet.
 ### Ziel und Abgrenzung
 
 Der ESP32-S3 wird als Zenoh-Client ausgeführt und verbindet sich über TCP mit
-einem Zenoh-Router auf dem Linux-/WSL-Host. Diese Stufe weist ausschließlich
+einem Zenoh-Router auf dem Windows-Host. Diese Stufe weist ausschließlich
 die Transport- und Session-Verbindung nach. Sie enthält noch keine Key
 Expression, keine Publish-/Subscribe- oder Query-/Reply-Operation und keine
 LED-Steuerung über Zenoh.
 
 ### Schnittstelle und Ablauf
 
-Eine spätere Komponente `ZenohClient` kapselt `zenoh-pico`. Sie wird erst
-gestartet, nachdem `Connectivity` die erfolgreiche WLAN-Anmeldung und
-IPv4-Konfiguration gemeldet hat; die dafür nötige Benachrichtigung wird mit
-der Implementierung als kleine Schnittstelle festgelegt. Der Verbindungsaufbau
-darf die LED-Abläufe nicht blockieren; Erfolg und Fehler werden zunächst nur
-seriell diagnostiziert. Der Router-Locator wird als lokale Konfiguration
-behandelt, weil er von der jeweiligen Host-IP abhängt und nicht in die
-versionierte Firmware-Konfiguration gehört.
+`Connectivity` meldet die erfolgreiche IPv4-Konfiguration über einen kleinen
+Callback mit Kontextzeiger an die Anwendung. Diese übergibt das Ereignis an
+`ZenohClient::start()`. `ZenohClient` reiht den eigentlichen Aufruf von
+`z_open()` in eine Zephyr-Workqueue ein: Der Netzwerk-Callback und die
+LED-Abläufe bleiben dadurch nicht blockiert. zenoh-pico startet bei der
+aktivierten Multithread-Konfiguration seine Hintergrundaufgaben nach einer
+erfolgreichen Session selbst.
+
+Der Router-Locator ist ein lokales Kconfig-Fragment `zenoh.conf`, da die
+Windows-LAN-Adresse installationsabhängig ist. `zenoh.conf.example` ist
+versioniert und erwartet einen expliziten TCP-Locator, beispielsweise
+`tcp/192.168.1.42:7447`; die echte Datei `zenoh.conf` ist von Git ausgeschlossen.
+`scripts/build.sh` übergibt vorhandene `wifi.conf` und `zenoh.conf` gemeinsam
+als zusätzliche Zephyr-Konfiguration. Der Windows-Router muss auf dieser
+Adresse und TCP-Port 7447 lauschen; WSL dient nur zum Bauen, Flashen und für
+den seriellen Monitor.
 
 ### Stand der Abhängigkeitsprüfung
 
@@ -553,7 +561,7 @@ vorgesehen; `.gitmodules` dokumentiert Quelle und Release-Zweig. Gegenüber dem
 zunächst untersuchten 1.9.0 enthält 1.10.1 die zuvor fehlenden Runtime-Quellen
 bereits.
 
-Vor jedem Build wendet `scripts/prepare_zenoh_pico.sh` zwei idempotente Patches
+Vor jedem Build wendet `scripts/prepare_zenoh_pico.sh` drei idempotente Patches
 an:
 
 - `0001-zephyr-version-header.patch` ist der unveränderte Inhalt des offenen
@@ -565,12 +573,24 @@ an:
   vorhandenen Zephyr-Kconfig-Features in diese Konfiguration. Ohne ihn wird
   zenoh-picos Top-Level-CMake nicht ausgeführt und die erzeugte Headerdatei
   fehlt.
+- `0003-zephyr-pthread-attribute-lifetime.patch` ist ein lokaler
+  Kompatibilitäts-Patch für Zephyrs POSIX-Threads. zenoh-pico verwendet einen
+  statisch reservierten Stack für seinen Hintergrund-Executor. Ein sofortiges
+  `pthread_attr_destroy()` nach `pthread_create()` versucht unter Zephyr, diesen
+  noch laufenden Stack freizugeben und erzeugt die Diagnose `tid ... is in use`.
+  Der Patch lässt das nur lokale Attributobjekt nach erfolgreicher Erstellung
+  verfallen; Zephyr verwaltet die kopierten Thread-Attribute beim Beenden des
+  Threads. Damit bleibt der statische Stack bis zum Thread-Ende gültig.
 
 Die Patches liegen versioniert unter `patches/zenoh-pico/`; das geklonte Modul
 wird durch ihre Anwendung absichtlich lokal verändert, sein Commit bleibt dabei
-unverändert. `prj.conf` aktiviert nur die Bibliothek, TCP, ihr benötigtes
-Threading und das dafür erforderliche Zephyr-POSIX-Profil. Eine Zenoh-Session
-oder Router-Konfiguration ist noch nicht Teil dieses Schritts.
+unverändert. `prj.conf` aktiviert die Bibliothek, den Zephyr-TCP-Stack, ihr
+benötigtes Threading und das dafür erforderliche Zephyr-POSIX-Profil. Die
+Standardpools von Zephyr umfassen nur fünf POSIX-Mutexe und sind für eine
+zenoh-pico-Session zu klein. Deshalb reservieren wir bewusst acht POSIX-Threads,
+16 Mutexe und acht Condition Variables als statische Obergrenzen. Sie vermeiden
+Heap-Allokation zur Laufzeit und werden bei wachsendem Funktionsumfang erneut
+gemessen statt pauschal weiter erhöht.
 
 ### Update-Prüfung
 
@@ -593,10 +613,12 @@ Branch und macht den Upstream-Status pro Release nachvollziehbar.
 
 ### Verifikation
 
-Auf dem Host läuft ein erreichbarer Zenoh-Router mit TCP-Listener. Nach dem
-Flashen meldet der serielle Monitor entweder die erfolgreich geöffnete
-Zenoh-Session oder einen eindeutigen Verbindungsfehler. Erst nach diesem
-Nachweis werden Key Expressions und die LED-Schnittstelle festgelegt.
+Auf dem Windows-Host läuft ein erreichbarer Zenoh-Router mit TCP-Listener, zum
+Beispiel `zenohd -l tcp/0.0.0.0:7447`; die Windows-Firewall erlaubt den Port im
+privaten Netzwerk. Nach dem Flashen meldet der serielle Monitor nach DHCP den
+verwendeten Locator und entweder die erfolgreich geöffnete Zenoh-Session oder
+einen eindeutigen Fehlercode. Erst nach diesem Nachweis werden Key Expressions
+und die LED-Schnittstelle festgelegt.
 
 ## Entwicklungsreihenfolge
 
