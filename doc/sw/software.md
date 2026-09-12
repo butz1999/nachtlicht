@@ -6,8 +6,10 @@ Diese Architektur beschreibt den minimalen Zephyr-/Zenoh-Demonstrator. Sie ist
 eine Arbeitsgrundlage und wird mit jeder Lernstufe präzisiert. Sie schreibt
 weder ein allgemeines Framework noch ein finales Produktprotokoll vor.
 
-Die erste lauffähige Stufe steuert ausschließlich die Onboard-WS2812. Netzwerk,
-Zenoh und Home Assistant folgen erst danach.
+Die bisherige Basis steuert die Onboard-WS2812 und stellt eine WLAN-Verbindung
+mit DHCP her. zenoh-pico ist als gepinntes Zephyr-Modul mit zwei dokumentierten
+Patches eingebunden; als nächste Stufe folgt der erste
+Zenoh-Verbindungsnachweis. Home Assistant folgt erst danach.
 
 ## Grenzen des Systems
 
@@ -522,12 +524,86 @@ Access Point und danach die von DHCP zugewiesene IPv4-Adresse erwartet. Bei
 einem Hardware-Reset muss die WSL-USB-Anbindung weiterhin aktiv sein; während
 der Entwicklung wird dafür `usbipd --auto-attach` verwendet.
 
+## Zenoh: erste Verbindungsprobe
+
+### Ziel und Abgrenzung
+
+Der ESP32-S3 wird als Zenoh-Client ausgeführt und verbindet sich über TCP mit
+einem Zenoh-Router auf dem Linux-/WSL-Host. Diese Stufe weist ausschließlich
+die Transport- und Session-Verbindung nach. Sie enthält noch keine Key
+Expression, keine Publish-/Subscribe- oder Query-/Reply-Operation und keine
+LED-Steuerung über Zenoh.
+
+### Schnittstelle und Ablauf
+
+Eine spätere Komponente `ZenohClient` kapselt `zenoh-pico`. Sie wird erst
+gestartet, nachdem `Connectivity` die erfolgreiche WLAN-Anmeldung und
+IPv4-Konfiguration gemeldet hat; die dafür nötige Benachrichtigung wird mit
+der Implementierung als kleine Schnittstelle festgelegt. Der Verbindungsaufbau
+darf die LED-Abläufe nicht blockieren; Erfolg und Fehler werden zunächst nur
+seriell diagnostiziert. Der Router-Locator wird als lokale Konfiguration
+behandelt, weil er von der jeweiligen Host-IP abhängt und nicht in die
+versionierte Firmware-Konfiguration gehört.
+
+### Stand der Abhängigkeitsprüfung
+
+`modules/lib/zenoh-pico` ist auf Release `1.10.1` mit Commit
+`e1ab223a28aaebb5dec1e70d98eab152332f777a` gepinnt. Es ist als Gitlink
+vorgesehen; `.gitmodules` dokumentiert Quelle und Release-Zweig. Gegenüber dem
+zunächst untersuchten 1.9.0 enthält 1.10.1 die zuvor fehlenden Runtime-Quellen
+bereits.
+
+Vor jedem Build wendet `scripts/prepare_zenoh_pico.sh` zwei idempotente Patches
+an:
+
+- `0001-zephyr-version-header.patch` ist der unveränderte Inhalt des offenen
+  Upstream-PRs [#1310](https://github.com/eclipse-zenoh/zenoh-pico/pull/1310).
+  Er verwendet auf aktuellen Zephyr-Versionen `zephyr/version.h`, behält aber
+  den alten Header als Rückfall bei.
+- `0002-zephyr-generate-config.patch` ist unser lokaler Modul-Patch. Er erzeugt
+  die von zenoh-pico benötigte `config.h` im Build-Verzeichnis und überträgt die
+  vorhandenen Zephyr-Kconfig-Features in diese Konfiguration. Ohne ihn wird
+  zenoh-picos Top-Level-CMake nicht ausgeführt und die erzeugte Headerdatei
+  fehlt.
+
+Die Patches liegen versioniert unter `patches/zenoh-pico/`; das geklonte Modul
+wird durch ihre Anwendung absichtlich lokal verändert, sein Commit bleibt dabei
+unverändert. `prj.conf` aktiviert nur die Bibliothek, TCP, ihr benötigtes
+Threading und das dafür erforderliche Zephyr-POSIX-Profil. Eine Zenoh-Session
+oder Router-Konfiguration ist noch nicht Teil dieses Schritts.
+
+### Update-Prüfung
+
+Bei einem neuen zenoh-pico Release wird zuerst der aktuell angewendete Patch
+zurückgesetzt (`git -C modules/lib/zenoh-pico restore .`) und das Modul auf den
+neuen, bewusst gewählten Tag gesetzt. Anschließend prüft
+`./scripts/check_zenoh_pico_patches.sh` jeden Patch:
+
+- `included upstream`: Der neue Release enthält den Fix; die lokale Patchdatei
+  wird nach Prüfung entfernt und die Dokumentation angepasst.
+- `still required`: Der Patch lässt sich weiterhin anwenden und bleibt nötig.
+- `no longer applies cleanly`: Der neue Upstream-Kontext hat sich geändert;
+  der Patch wird vor einem Build fachlich überprüft und angepasst, nicht blind
+  übernommen.
+
+Nach der Entscheidung wird der erwartete Commit in
+`scripts/prepare_zenoh_pico.sh`, `.gitmodules` und diesem Abschnitt gemeinsam
+aktualisiert. Das verhindert unbemerkte Änderungen durch einen wandernden
+Branch und macht den Upstream-Status pro Release nachvollziehbar.
+
+### Verifikation
+
+Auf dem Host läuft ein erreichbarer Zenoh-Router mit TCP-Listener. Nach dem
+Flashen meldet der serielle Monitor entweder die erfolgreich geöffnete
+Zenoh-Session oder einen eindeutigen Verbindungsfehler. Erst nach diesem
+Nachweis werden Key Expressions und die LED-Schnittstelle festgelegt.
+
 ## Entwicklungsreihenfolge
 
 1. Zephyr-Projekt und Build/Flash für das ESP32-S3-Zero verifizieren.
 2. Onboard-WS2812 über `RgbLed` ansteuern.
 3. Netzwerkverbindung herstellen und diagnostizieren.
-4. zenoh-pico integrieren; Kommunikation Host ↔ Controller nachweisen.
+4. zenoh-pico integrieren und eine TCP-Session Host ↔ Controller nachweisen.
 5. LED über Zenoh steuern und State publizieren.
 6. Kommunikationsmuster, Lifecycle und Reconnect untersuchen.
 7. Erst danach Home Assistant oder weitere Hardware evaluieren.

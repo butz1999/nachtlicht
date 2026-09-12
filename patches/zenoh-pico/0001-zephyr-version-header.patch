@@ -1,0 +1,66 @@
+From: zenoh-pico upstream PR #1310
+Subject: [PATCH] zephyr: include <zephyr/version.h> when it is available
+
+Upstream PR: https://github.com/eclipse-zenoh/zenoh-pico/pull/1310
+Applies to: zenoh-pico 1.10.1 (e1ab223a28aaebb5dec1e70d98eab152332f777a)
+
+diff --git a/include/zenoh-pico/system/platform/zephyr.h b/include/zenoh-pico/system/platform/zephyr.h
+index d43a9fbc..449f653d 100644
+--- a/include/zenoh-pico/system/platform/zephyr.h
++++ b/include/zenoh-pico/system/platform/zephyr.h
+@@ -15,7 +15,15 @@
+ #ifndef ZENOH_PICO_SYSTEM_ZEPHYR_TYPES_H
+ #define ZENOH_PICO_SYSTEM_ZEPHYR_TYPES_H
+ 
++#ifdef __has_include
++#if __has_include(<zephyr/version.h>)
++#include <zephyr/version.h>
++#else
+ #include <version.h>
++#endif
++#else
++#include <version.h>
++#endif
+ 
+ #if KERNEL_VERSION_MAJOR == 2
+ #include <kernel.h>
+diff --git a/src/link/transport/serial/uart_zephyr.c b/src/link/transport/serial/uart_zephyr.c
+index 17cf9940..c71d0f84 100644
+--- a/src/link/transport/serial/uart_zephyr.c
++++ b/src/link/transport/serial/uart_zephyr.c
+@@ -16,7 +16,15 @@
+ 
+ #if Z_FEATURE_LINK_SERIAL == 1 && defined(ZENOH_ZEPHYR)
+ 
++#ifdef __has_include
++#if __has_include(<zephyr/version.h>)
++#include <zephyr/version.h>
++#else
+ #include <version.h>
++#endif
++#else
++#include <version.h>
++#endif
+ 
+ #if KERNEL_VERSION_MAJOR == 2
+ #include <drivers/uart.h>
+diff --git a/src/system/zephyr/system.c b/src/system/zephyr/system.c
+index 19c7d56a..a8c2b72d 100644
+--- a/src/system/zephyr/system.c
++++ b/src/system/zephyr/system.c
+@@ -16,7 +16,15 @@
+ 
+ #if defined(ZENOH_ZEPHYR)
+ 
++#ifdef __has_include
++#if __has_include(<zephyr/version.h>)
++#include <zephyr/version.h>
++#else
+ #include <version.h>
++#endif
++#else
++#include <version.h>
++#endif
+ 
+ #if KERNEL_VERSION_MAJOR == 2
+ #include <random/rand32.h>
