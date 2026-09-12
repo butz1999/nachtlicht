@@ -7,7 +7,7 @@
 	};
 
 	aliases {
-		led-strip = &onboard_ws2812;
+		status-led = &onboard_ws2812;
 	};
 
 	onboard_ws2812: ws2812 {

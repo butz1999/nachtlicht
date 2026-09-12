@@ -13,7 +13,7 @@ namespace rgb_led
 namespace
 {
 
-const struct device *const kLedStrip = DEVICE_DT_GET(DT_ALIAS(led_strip));
+const struct device *const kLedStrip = DEVICE_DT_GET(DT_ALIAS(status_led));
 
 }  // namespace
 

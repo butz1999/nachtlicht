@@ -3,6 +3,7 @@
 #include <zephyr/sys/printk.h>
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 
@@ -11,11 +12,16 @@
 namespace
 {
 
-constexpr std::array<rgb_led::Color, 3> kTestColors{{
-    {255U, 0U, 0U},
-    {0U, 255U, 0U},
-    {0U, 0U, 255U},
+// clang-format off
+constexpr std::array<rgb_led::Color, 6> kTestColors{{
+    { 255U,   0U,   0U },
+    { 255U, 255U,   0U },
+    {   0U, 255U,   0U },
+    {   0U, 255U, 255U },
+    {   0U,   0U, 255U },
+    { 255U,   0U, 255U },
 }};
+// clang-format on
 
 rgb_led::RgbLed led;
 struct k_work_delayable color_work;
@@ -26,7 +32,7 @@ struct k_work render_work;
 constexpr std::uint8_t kBrightnessOn = 32U;
 constexpr std::uint8_t kBrightnessOff = 0U;
 constexpr std::uint16_t kBrightnessMaximum = 255U;
-atomic_t brightness = ATOMIC_INIT(kBrightnessOn);
+std::atomic<std::uint8_t> brightness{kBrightnessOn};  // std::atomic for clean thread-safe implementation
 struct k_timer brightness_timer;
 
 rgb_led::Color current_color;
@@ -35,7 +41,7 @@ void render_color(struct k_work *work)
 {
   ARG_UNUSED(work);
   rgb_led::Color c = current_color;
-  const auto brightness_value = static_cast<std::uint8_t>(atomic_get(&brightness));
+  const auto brightness_value = brightness.load();
 
   c.red = static_cast<std::uint8_t>((static_cast<std::uint16_t>(c.red) * brightness_value) / kBrightnessMaximum);
   c.green = static_cast<std::uint8_t>((static_cast<std::uint16_t>(c.green) * brightness_value) / kBrightnessMaximum);
@@ -51,8 +57,8 @@ void render_color(struct k_work *work)
 void update_brightness(struct k_timer *timer)
 {
   ARG_UNUSED(timer);
-  const auto next_brightness = atomic_get(&brightness) == kBrightnessOn ? kBrightnessOff : kBrightnessOn;
-  atomic_set(&brightness, next_brightness);
+  const auto next_brightness = brightness.load() == kBrightnessOn ? kBrightnessOff : kBrightnessOn;
+  brightness.store(next_brightness);
   k_work_submit(&render_work);
 }
 
