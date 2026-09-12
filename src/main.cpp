@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "connectivity/connectivity.hpp"
 #include "rgb_led/rgb_led.hpp"
 
 namespace
@@ -24,6 +25,7 @@ constexpr std::array<rgb_led::Color, 6> kTestColors{{
 // clang-format on
 
 rgb_led::RgbLed led;
+connectivity::Connectivity network;
 struct k_work_delayable color_work;
 std::size_t color_index;
 
@@ -91,6 +93,12 @@ int main()
 
   k_work_schedule(&color_work, K_NO_WAIT);
   k_timer_start(&brightness_timer, K_MSEC(500), K_MSEC(500));
+
+  const auto connectivity_result = network.initialize();
+  if (connectivity_result != 0)
+  {
+    printk("Connectivity initialization failed: %d\n", connectivity_result);
+  }
 
   return 0;
 }

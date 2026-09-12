@@ -36,3 +36,7 @@
 	pinctrl-names = "default";
 	status = "okay";
 };
+
+&wifi {
+	status = "okay";
+};

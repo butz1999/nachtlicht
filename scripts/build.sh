@@ -6,9 +6,16 @@ source "$(dirname "$0")/lib/zephyr.sh"
 
 require_zephyr_environment
 
+wifi_conf="${project_root}/wifi.conf"
+extra_conf_file=""
+if [[ -f "${wifi_conf}" ]]; then
+  extra_conf_file="${wifi_conf}"
+fi
+
 cd "${zephyr_workspace}"
 exec "${west_bin}" build -p "${WEST_PRISTINE:-auto}" \
   -d "${build_dir}" \
   -b esp32s3_devkitc/esp32s3/procpu \
   -S espressif-flash-4M \
-  "${project_root}"
+  "${project_root}" \
+  -- "-DEXTRA_CONF_FILE=${extra_conf_file}"

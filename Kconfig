@@ -1,0 +1,20 @@
+mainmenu "nachtlicht"
+
+source "Kconfig.zephyr"
+
+menu "nachtlicht"
+
+config NACHTLICHT_WIFI_SSID
+	string "Wi-Fi SSID"
+	default ""
+	help
+	  SSID of the WPA2-PSK network used by the connectivity demonstration.
+
+config NACHTLICHT_WIFI_PSK
+	string "Wi-Fi pre-shared key"
+	default ""
+	help
+	  WPA2 pre-shared key of the Wi-Fi network used by the connectivity
+	  demonstration.
+
+endmenu

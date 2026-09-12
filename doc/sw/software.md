@@ -413,7 +413,7 @@ Workqueue weiter. Nur ein Workqueue-Handler darf `RgbLed::set()` aufrufen.
 ```text
 color_work (1 s) ──> Grundfarbe ändern ──────┐
                                               ├──> render_work ──> RgbLed::set()
-blink_timer (500 ms) ──> Helligkeit 0 ↔ 64 ──┘
+blink_timer (500 ms) ──> Helligkeit 0 ↔ 32 ──┘
 ```
 
 `render_work` kombiniert Grundfarbe und Helligkeit: Bei `0` schreibt er
@@ -427,6 +427,84 @@ Der LED-Test wechselt bei jeder Grundfarbe im Halbsekundenrhythmus zwischen aus
 und gedimmt. Der serielle Monitor darf dabei keine wiederkehrenden
 Fehlerdiagnosen ausgeben.
 
+## WLAN-Inbetriebnahme
+
+### Ziel und Abgrenzung
+
+Die nächste Stufe stellt eine WLAN-Verbindung im Station-Modus her, bezieht
+per DHCP eine IPv4-Adresse und macht Verbindungszustand sowie Adresse seriell
+sichtbar. Zenoh, ein Konfigurationsportal, Scans und eine ausgereifte
+Reconnect-Strategie sind noch nicht Teil dieser Stufe.
+
+### Hardwarebeschreibung
+
+Der ESP32-S3 enthält das WLAN-Radio als interne Peripherie; dafür sind auf dem
+ESP32-S3-Zero keine zusätzlichen GPIOs oder Pinmux-Einstellungen erforderlich.
+Das ausgewählte Zephyr-Basisboard aktiviert den Knoten `&wifi` bereits. Das
+lokale Board-Overlay wiederholt `status = "okay"` als expliziten Vertrag der
+Anwendung mit der verwendeten Hardware.
+
+SSID und Passwort gehören weder in den Devicetree noch in versionierte
+`prj.conf`-Dateien. `wifi.conf.example` ist versioniert und zeigt die zwei
+Kconfig-Werte. Vor dem ersten Verbindungsversuch wird sie nach `wifi.conf`
+kopiert und lokal ausgefüllt. `wifi.conf` ist von Git ausgeschlossen;
+`scripts/build.sh` übergibt sie bei Existenz als zusätzliche Zephyr-
+Konfigurationsdatei. Ohne diese Datei baut die Firmware mit leeren
+Platzhalterwerten, überspringt den Verbindungsversuch aber mit einer klaren
+seriellen Diagnose.
+
+### Schnittstelle und Ablauf
+
+`Connectivity` unter `src/connectivity/` kapselt die Zephyr-Netzwerk- und
+WLAN-APIs. `main()` initialisiert sie nur; `net_mgmt` startet die WPA2-PSK-
+Verbindung asynchron. Nach einem erfolgreichen Verbindungsereignis startet
+die Komponente DHCPv4 selbst. Dadurch sind die beiden Zustände in der Konsole
+getrennt sichtbar: erst die Anmeldung am Access Point, danach die von DHCP
+zugewiesene IPv4-Adresse. `CONFIG_WIFI_STA_AUTO_DHCPV4=n` verhindert dabei,
+dass der ESP32-Treiber diese Schritte wieder zusammenfasst. Die Komponente
+veröffentlicht zunächst keine fachlichen Nachrichten und steuert die LED nicht.
+
+Zephyr führt WLAN- und IPv4-Ereignisse in unterschiedlichen Netzwerk-Layern.
+`Connectivity` registriert deshalb getrennte `net_mgmt`-Callbacks: einen für
+WLAN-Verbindungs- und Trennereignisse sowie einen für die IPv4-Adresse. Diese
+Ereignismasken dürfen nicht zu einer gemeinsamen Maske verodert werden.
+
+### Ergebnis der Inbetriebnahme
+
+Die Verbindung wurde auf der Zielhardware erfolgreich verifiziert: Der
+ESP32-S3 meldete das Station-Ereignis `WIFI_EVENT_STA_CONNECTED` und erhielt
+anschließend eine IPv4-Adresse vom DHCP-Server.
+
+Die Diagnose verlief in zwei Schritten. Zunächst wurde das Zephyr-Logging für
+den Wi-Fi-Treiber aktiviert. Es bestätigte mit `Wi-Fi event: 4` die Anmeldung
+am Access Point; SSID, WPA2-PSK und 2,4-GHz-Verbindung waren damit bestätigt.
+Unsere Anwendung meldete diesen Erfolg zunächst dennoch nicht, weil WLAN- und
+IPv4-Ereignisse in einer gemeinsamen `net_mgmt`-Maske zusammengefasst waren.
+Getrennte Callbacks für die beiden Netzwerk-Layer beheben das.
+
+Das Debug-Logging ist danach wieder deaktiviert
+(`CONFIG_WIFI_LOG_LEVEL_DBG=n`). `CONFIG_LOG=y` bleibt als Infrastruktur
+eingeschaltet, erzeugt ohne aktivierte Modul-Logstufe aber keine Wi-Fi-
+Debugzeilen. Für eine spätere Fehlersuche kann `CONFIG_WIFI_LOG_LEVEL_DBG=y`
+temporär in `prj.conf` gesetzt werden; danach ist ein Neubau nötig.
+
+Die erste Implementierung unterstützt bewusst nur WPA2-PSK. WPA3,
+Enterprise-WLAN, Konfigurationsportal und Wiederverbindung bleiben spätere
+Entscheidungen.
+
+### Lokale Zugangsdaten
+
+Vor dem Hardwaretest wird die Beispielkonfiguration lokal kopiert und
+ausgefüllt:
+
+```bash
+cp wifi.conf.example wifi.conf
+```
+
+`wifi.conf` darf nicht gestagt, committed oder in Chats geteilt werden. Nach
+dem Ausfüllen reicht der normale Build-Befehl; das Build-Skript erkennt die
+Datei automatisch.
+
 ### Verifikation
 
 Der normale Ablauf bleibt lokal im Anwendungs-Repository:
@@ -437,10 +515,12 @@ Der normale Ablauf bleibt lokal im Anwendungs-Repository:
 ./scripts/monitor.sh
 ```
 
-Erwartet werden die seriellen Initialisierungsdiagnosen und ein sichtbarer,
-periodischer Wechsel der Onboard-LED zwischen rot, grün und blau. Bei einem
-Hardware-Reset muss die WSL-USB-Anbindung weiterhin aktiv sein; während der
-Entwicklung wird dafür `usbipd --auto-attach` verwendet.
+Ohne `wifi.conf` bleiben die LED-Diagnosen sichtbar und die Konsole meldet
+fehlende oder ungültige WLAN-Zugangsdaten. Mit gültigen Zugangsdaten werden
+zusätzlich eine angeforderte WLAN-Verbindung, die erfolgreiche Anmeldung am
+Access Point und danach die von DHCP zugewiesene IPv4-Adresse erwartet. Bei
+einem Hardware-Reset muss die WSL-USB-Anbindung weiterhin aktiv sein; während
+der Entwicklung wird dafür `usbipd --auto-attach` verwendet.
 
 ## Entwicklungsreihenfolge
 
@@ -455,7 +535,6 @@ Entwicklung wird dafür `usbipd --auto-attach` verwendet.
 ## Offene Entscheidungen
 
 - Zephyr-Board-Target und Board-spezifisches Devicetree-Overlay
-- Wi-Fi-Konfiguration und Umgang mit Zugangsdaten
 - Einbindung, Speicherbedarf und Threading-Modell von zenoh-pico
 - Key Expressions, Payload-Schema, Versionsstrategie und Fehlervertrag
 - Teststrategie auf Host und Hardware

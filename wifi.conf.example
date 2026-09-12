@@ -1,0 +1,4 @@
+# Copy this file to wifi.conf and replace the placeholders with local credentials.
+# wifi.conf is intentionally ignored by Git.
+CONFIG_NACHTLICHT_WIFI_SSID="your-network-name"
+CONFIG_NACHTLICHT_WIFI_PSK="your-network-password"

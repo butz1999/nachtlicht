@@ -7,3 +7,6 @@
 # Python bytecode caches created by host-side test or helper scripts
 __pycache__/
 *.py[cod]
+
+# Local Wi-Fi credentials
+/wifi.conf
