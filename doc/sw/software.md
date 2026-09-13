@@ -7,10 +7,11 @@ eine Arbeitsgrundlage und wird mit jeder Lernstufe präzisiert. Sie schreibt
 weder ein allgemeines Framework noch ein finales Produktprotokoll vor.
 
 Die bisherige Basis steuert die Onboard-WS2812, stellt eine WLAN-Verbindung
-mit DHCP her und öffnet eine Zenoh-Session zum Router auf dem Windows-Host.
+mit DHCP her und kommuniziert über eine Zenoh-Session mit dem Router auf dem
+Windows-Host. Dilbert fordert interaktiv Farbwechsel an; der ESP32 meldet
+Farbwechsel und Helligkeitsänderungen als flüchtige Zenoh-Ereignisse zurück.
 zenoh-pico ist als gepinntes Zephyr-Modul mit drei dokumentierten Patches
-eingebunden. Als nächstes wird Dilbert, das interaktive Zenoh-Werkzeug,
-eingeführt; Home Assistant folgt erst danach.
+eingebunden. Home Assistant folgt erst nach diesem End-to-End-Nachweis.
 
 ## Grenzen des Systems
 
@@ -655,14 +656,13 @@ und `eclipse-zenoh`; `config.example.py` ist die versionierte Vorlage für den
 lokalen Router-Locator. Die daraus kopierte Datei `config.py` bleibt lokal und
 ist von Git ausgeschlossen.
 
-### Erste Schnittstelle und Ablauf
+### Schnittstellen, GUI und Ablauf
 
-Der erste Dilbert-Schritt öffnet eine explizit konfigurierte Session und
-deklariert einen Publisher für `nachtlicht/led/color/next`. Er sendet als
-Text-Payload `next`; die erste Firmware-Version prüft nur das Eintreffen einer
-gültigen Nachricht. Jede Nachricht fordert genau den Wechsel zur nächsten
-Farbe der bestehenden Testreihe an. Der Blink-/Helligkeits-Timer auf dem
-ESP32 bleibt dabei unverändert aktiv.
+Dilbert öffnet eine explizit konfigurierte Session und deklariert einen
+Publisher für `nachtlicht/led/color/next`. Ein `ipywidgets`-Button sendet als
+Text-Payload `next`; die Firmware prüft in dieser Ausbaustufe nur das
+Eintreffen einer gültigen Nachricht. Jede Nachricht fordert genau den Wechsel
+zur nächsten Farbe der bestehenden Testreihe an.
 
 `ZenohClient` deklariert nach dem erfolgreichen Öffnen der Session einen
 Subscriber für denselben Key. Er meldet jede empfangene Nachricht über einen
@@ -676,9 +676,31 @@ Beim Boot setzt der Work-Handler einmalig die erste Testfarbe. Anschließend
 wechseln die Farben ausschließlich auf Dilbert-Anforderung; die bisherige
 periodische Farb-Workqueue entfällt. Die serielle Diagnose meldet die
 erfolgreiche Subscriber-Deklaration und jede empfangene Farbwechsel-Anforderung.
-`CONFIG_ZENOH_PICO_SUBSCRIPTION=y` aktiviert dafür gezielt die
-Subscriber-API von zenoh-pico; Publisher, Query und Queryable bleiben in der
-Firmware weiterhin deaktiviert, solange sie nicht benötigt werden.
+
+Nach einem erfolgreich ausgeführten Hardware-Update publiziert die Firmware
+zwei Ereignisarten. Beide Payloads sind kompakte JSON-Texte, damit sie im
+Notebook ohne zusätzliche Abhängigkeit lesbar sind:
+
+| Key Expression | Auslöser | Payload-Beispiel |
+| --- | --- | --- |
+| `nachtlicht/led/color/changed` | ein angeforderter Farbwechsel wurde auf die WS2812 geschrieben | `{"sequence":3,"color":"blue"}` |
+| `nachtlicht/led/brightness/changed` | der Blink-Timer hat einen neuen Helligkeitswert auf die WS2812 geschrieben | `{"sequence":43,"brightness":0}` |
+
+Die Helligkeitsereignisse bilden zugleich einen Heartbeat: Empfängt Dilbert
+weiterhin neue Ereignisse, ist die laufende Firmware mitsamt ihrer Zenoh-Session
+erreichbar. Sie sind dennoch absichtlich als `brightness/changed` benannt, weil
+sie die tatsächlich beobachtete Zustandsänderung ausdrücken. Die Zähler werden
+bei jedem Firmware-Boot bei null begonnen und sind keine persistente Historie.
+Ist Dilbert nicht verbunden, gehen die flüchtigen Ereignisse verloren.
+
+Dilbert deklariert Subscriber für beide Ereignis-Keys. Die GUI zeigt die letzte
+gemeldete Farbe und Helligkeit sowie die Anzahl der in der aktuellen
+Notebook-Session empfangenen Ereignisse an. Updates aus Zenoh-Callbacks werden
+thread-sicher an die Jupyter-Ausgabe übergeben.
+
+`CONFIG_ZENOH_PICO_SUBSCRIPTION=y` und `CONFIG_ZENOH_PICO_PUBLICATION=y`
+aktivieren gezielt die benötigten zenoh-pico-APIs. Query und Queryable bleiben
+deaktiviert, solange sie nicht benötigt werden.
 
 ### Abgrenzung
 
@@ -696,7 +718,7 @@ Host.
 3. Netzwerkverbindung herstellen und diagnostizieren.
 4. zenoh-pico integrieren und eine TCP-Session Host ↔ Controller nachweisen.
 5. Mit Dilbert eine Zenoh-Nachricht an den Controller senden.
-6. LED über Zenoh steuern und State publizieren.
+6. LED über Zenoh steuern sowie Farb- und Helligkeitsereignisse anzeigen.
 7. Kommunikationsmuster, Lifecycle und Reconnect untersuchen.
 8. Erst danach Home Assistant oder weitere Hardware evaluieren.
 

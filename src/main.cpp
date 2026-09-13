@@ -15,15 +15,24 @@ namespace
 {
 
 // clang-format off
-constexpr std::array<rgb_led::Color, 6> kTestColors{{
-    { 255U,   0U,   0U },
-    { 255U, 255U,   0U },
-    {   0U, 255U,   0U },
-    {   0U, 255U, 255U },
-    {   0U,   0U, 255U },
-    { 255U,   0U, 255U },
+struct TestColor
+{
+  rgb_led::Color value;
+  const char *name;
+};
+
+constexpr std::array<TestColor, 6> kTestColors{{
+    { { 255U,   0U,   0U }, "red" },
+    { { 255U, 255U,   0U }, "yellow" },
+    { {   0U, 255U,   0U }, "green" },
+    { {   0U, 255U, 255U }, "cyan" },
+    { {   0U,   0U, 255U }, "blue" },
+    { { 255U,   0U, 255U }, "magenta" },
 }};
 // clang-format on
+
+constexpr std::uint8_t kColorChangedEvent = BIT(0);
+constexpr std::uint8_t kBrightnessChangedEvent = BIT(1);
 
 rgb_led::RgbLed led;
 connectivity::Connectivity network;
@@ -40,6 +49,10 @@ std::atomic<std::uint8_t> brightness{kBrightnessOn};  // std::atomic for clean t
 struct k_timer brightness_timer;
 
 rgb_led::Color current_color;
+const char *current_color_name;
+std::atomic<std::uint8_t> pending_events{0U};
+std::uint32_t color_change_sequence;
+std::uint32_t brightness_change_sequence;
 
 void render_color(struct k_work *work)
 {
@@ -55,6 +68,17 @@ void render_color(struct k_work *work)
   if (result != 0)
   {
     printk("RGB LED update failed: %d\n", result);
+    return;
+  }
+
+  const auto events = pending_events.exchange(0U);
+  if ((events & kColorChangedEvent) != 0U)
+  {
+    zenoh.publish_color_changed(++color_change_sequence, current_color_name);
+  }
+  if ((events & kBrightnessChangedEvent) != 0U)
+  {
+    zenoh.publish_brightness_changed(++brightness_change_sequence, brightness_value);
   }
 }
 
@@ -63,14 +87,18 @@ void update_brightness(struct k_timer *timer)
   ARG_UNUSED(timer);
   const auto next_brightness = brightness.load() == kBrightnessOn ? kBrightnessOff : kBrightnessOn;
   brightness.store(next_brightness);
+  pending_events.fetch_or(kBrightnessChangedEvent);
   k_work_submit(&render_work);
 }
 
 void update_color(struct k_work *work)
 {
   ARG_UNUSED(work);
-  current_color = kTestColors[color_index];
+  const auto &next_color = kTestColors[color_index];
+  current_color = next_color.value;
+  current_color_name = next_color.name;
   color_index = (color_index + 1U) % kTestColors.size();
+  pending_events.fetch_or(kColorChangedEvent);
   k_work_submit(&render_work);
 }
 

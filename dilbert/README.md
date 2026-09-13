@@ -1,8 +1,8 @@
 # Dilbert
 
-Dilbert is the interactive Jupyter tool for sending Zenoh messages to
-Nachtlicht. It runs in its own Python environment under WSL; JupyterLab is
-opened in the Windows browser.
+Dilbert is the interactive Jupyter tool for controlling Nachtlicht and
+observing its Zenoh events. It runs in its own Python environment under WSL;
+JupyterLab is opened in the Windows browser.
 
 ## Setup
 
@@ -29,9 +29,10 @@ jupyter lab --no-browser
 ```
 
 Open the URL printed by JupyterLab in a Windows browser and open
-`dilbert.ipynb`. The notebook opens a Zenoh session to the configured router
-and publishes `next` on `nachtlicht/led/color/next`.
+`dilbert.ipynb`. The notebook opens a Zenoh session to the configured router.
+Its button publishes `next` on `nachtlicht/led/color/next`; the GUI also
+subscribes to the colour-change and brightness events sent by the ESP32.
 
-The first notebook version verifies the host-side publisher. The firmware
-subscriber is added separately; only after that does the button cell cause a
-visible colour change on the ESP32-S3.
+The brightness-event counter is a live heartbeat. It increases only while the
+notebook and the ESP32 are connected to the Zenoh router; Zenoh Pub/Sub does
+not replay events sent before Dilbert subscribed.
