@@ -28,7 +28,7 @@ constexpr std::array<rgb_led::Color, 6> kTestColors{{
 rgb_led::RgbLed led;
 connectivity::Connectivity network;
 zenoh_client::ZenohClient zenoh;
-struct k_work_delayable color_work;
+struct k_work color_work;
 std::size_t color_index;
 
 struct k_work render_work;
@@ -71,8 +71,13 @@ void update_color(struct k_work *work)
   ARG_UNUSED(work);
   current_color = kTestColors[color_index];
   color_index = (color_index + 1U) % kTestColors.size();
-  k_work_schedule(&color_work, K_MSEC(1000));
   k_work_submit(&render_work);
+}
+
+void request_next_color(void *context)
+{
+  auto *const work = static_cast<struct k_work *>(context);
+  k_work_submit(work);
 }
 
 void start_zenoh(void *context)
@@ -95,13 +100,14 @@ int main()
   }
 
   printk("RGB LED test started.\n");
-  k_work_init_delayable(&color_work, update_color);
+  k_work_init(&color_work, update_color);
   k_work_init(&render_work, render_color);
   k_timer_init(&brightness_timer, update_brightness, nullptr);
 
-  k_work_schedule(&color_work, K_NO_WAIT);
+  k_work_submit(&color_work);
   k_timer_start(&brightness_timer, K_MSEC(500), K_MSEC(500));
 
+  zenoh.initialize(request_next_color, &color_work);
   const auto connectivity_result = network.initialize(start_zenoh, &zenoh);
   if (connectivity_result != 0)
   {

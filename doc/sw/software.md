@@ -6,10 +6,11 @@ Diese Architektur beschreibt den minimalen Zephyr-/Zenoh-Demonstrator. Sie ist
 eine Arbeitsgrundlage und wird mit jeder Lernstufe präzisiert. Sie schreibt
 weder ein allgemeines Framework noch ein finales Produktprotokoll vor.
 
-Die bisherige Basis steuert die Onboard-WS2812 und stellt eine WLAN-Verbindung
-mit DHCP her. zenoh-pico ist als gepinntes Zephyr-Modul mit drei dokumentierten
-Patches eingebunden; als nächste Stufe folgt der erste
-Zenoh-Verbindungsnachweis. Home Assistant folgt erst danach.
+Die bisherige Basis steuert die Onboard-WS2812, stellt eine WLAN-Verbindung
+mit DHCP her und öffnet eine Zenoh-Session zum Router auf dem Windows-Host.
+zenoh-pico ist als gepinntes Zephyr-Modul mit drei dokumentierten Patches
+eingebunden. Als nächstes wird Dilbert, das interaktive Zenoh-Werkzeug,
+eingeführt; Home Assistant folgt erst danach.
 
 ## Grenzen des Systems
 
@@ -620,15 +621,84 @@ verwendeten Locator und entweder die erfolgreich geöffnete Zenoh-Session oder
 einen eindeutigen Fehlercode. Erst nach diesem Nachweis werden Key Expressions
 und die LED-Schnittstelle festgelegt.
 
+## Dilbert: interaktives Zenoh-Werkzeug
+
+### Ziel und Architektur
+
+Dilbert ist das plattformübergreifende, interaktive Werkzeug für manuelle
+Zenoh-Experimente und einfache Bedienung. Es liegt als eigenständiger Ordner
+`dilbert/` im Projektstamm und besteht aus einem versionierten Jupyter-Notebook.
+Der Name folgt der im Projekt etablierten Bezeichnung für kleine,
+plattformübergreifende Bedienwerkzeuge. Das Notebook läuft in einer eigenen
+Python-Umgebung unter WSL; sein Frontend wird im Browser auf Windows bedient.
+Solange Dilbert das einzige Host-Werkzeug ist, bleibt die Projektstruktur
+flach. Erst bei weiteren Werkzeugen wird eine gemeinsame Struktur unter
+`tools/` eingeführt.
+
+```text
+Browser auf Windows → JupyterLab in WSL → Zenoh TCP → zenohd auf Windows → ESP32-S3
+```
+
+Dilbert verwendet `eclipse-zenoh` als direkten Zenoh-Client und verbindet sich
+über den expliziten TCP-Locator mit dem bestehenden Windows-Router. Damit
+bleiben Firmware und Werkzeug gleichwertige Zenoh-Teilnehmer; weder ein
+eigener Webserver noch das Zenoh-REST-Plugin oder eine WebSocket-Bridge gehören
+zu dieser Ausbaustufe.
+
+Das Notebook-Format erlaubt, jeden Versuch mit Erklärung, Python-Code und
+sichtbarem Ergebnis festzuhalten. Das `.ipynb` und sein Python-Code sind
+plattformübergreifend versionierbar. Die Virtual Environment selbst ist
+plattformabhängig und wird nicht versioniert; sie bleibt getrennt von der
+Zephyr-Toolchain, damit Python-Abhängigkeiten für Firmware-Build und Dilbert
+einander nicht beeinflussen. `dilbert/requirements.txt` beschreibt JupyterLab
+und `eclipse-zenoh`; `config.example.py` ist die versionierte Vorlage für den
+lokalen Router-Locator. Die daraus kopierte Datei `config.py` bleibt lokal und
+ist von Git ausgeschlossen.
+
+### Erste Schnittstelle und Ablauf
+
+Der erste Dilbert-Schritt öffnet eine explizit konfigurierte Session und
+deklariert einen Publisher für `nachtlicht/led/color/next`. Er sendet als
+Text-Payload `next`; die erste Firmware-Version prüft nur das Eintreffen einer
+gültigen Nachricht. Jede Nachricht fordert genau den Wechsel zur nächsten
+Farbe der bestehenden Testreihe an. Der Blink-/Helligkeits-Timer auf dem
+ESP32 bleibt dabei unverändert aktiv.
+
+`ZenohClient` deklariert nach dem erfolgreichen Öffnen der Session einen
+Subscriber für denselben Key. Er meldet jede empfangene Nachricht über einen
+Callback mit Kontextzeiger an die Anwendung. Dieser Callback darf die WS2812
+nicht direkt aus dem Zenoh-Hintergrundthread ansteuern: Er reicht ausschließlich
+den bestehenden `color_work` weiter. Der Work-Handler setzt die nächste Farbe
+und reiht danach `render_work` für den Hardwarezugriff ein. Dadurch bleiben
+Zenoh-Verarbeitung, Timer und Hardwarezugriff voneinander entkoppelt.
+
+Beim Boot setzt der Work-Handler einmalig die erste Testfarbe. Anschließend
+wechseln die Farben ausschließlich auf Dilbert-Anforderung; die bisherige
+periodische Farb-Workqueue entfällt. Die serielle Diagnose meldet die
+erfolgreiche Subscriber-Deklaration und jede empfangene Farbwechsel-Anforderung.
+`CONFIG_ZENOH_PICO_SUBSCRIPTION=y` aktiviert dafür gezielt die
+Subscriber-API von zenoh-pico; Publisher, Query und Queryable bleiben in der
+Firmware weiterhin deaktiviert, solange sie nicht benötigt werden.
+
+### Abgrenzung
+
+Eine Browser-App mit Zenoh REST oder WebSocket-Bridge, eine native
+Windows-Anwendung und eine Rust-Implementierung bleiben sinnvolle spätere
+Alternativen. Sie sind nicht Teil des ersten End-to-End-Nachweises. Jupyter
+auf dem ESP32 selbst wäre eine MicroPython-Umgebung und würde die aktuelle
+Zephyr/C++-Firmware ersetzen; Dilbert läuft deshalb ausschließlich auf dem
+Host.
+
 ## Entwicklungsreihenfolge
 
 1. Zephyr-Projekt und Build/Flash für das ESP32-S3-Zero verifizieren.
 2. Onboard-WS2812 über `RgbLed` ansteuern.
 3. Netzwerkverbindung herstellen und diagnostizieren.
 4. zenoh-pico integrieren und eine TCP-Session Host ↔ Controller nachweisen.
-5. LED über Zenoh steuern und State publizieren.
-6. Kommunikationsmuster, Lifecycle und Reconnect untersuchen.
-7. Erst danach Home Assistant oder weitere Hardware evaluieren.
+5. Mit Dilbert eine Zenoh-Nachricht an den Controller senden.
+6. LED über Zenoh steuern und State publizieren.
+7. Kommunikationsmuster, Lifecycle und Reconnect untersuchen.
+8. Erst danach Home Assistant oder weitere Hardware evaluieren.
 
 ## Offene Entscheidungen
 

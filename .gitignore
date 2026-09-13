@@ -13,3 +13,8 @@ __pycache__/
 
 # Local Zenoh router endpoint
 /zenoh.conf
+
+# Local Dilbert environment and router endpoint
+/dilbert/.venv/
+/dilbert/config.py
+/dilbert/.ipynb_checkpoints/
