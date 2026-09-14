@@ -615,12 +615,17 @@ Branch und macht den Upstream-Status pro Release nachvollziehbar.
 
 ### Verifikation
 
-Auf dem Windows-Host läuft ein erreichbarer Zenoh-Router mit TCP-Listener, zum
-Beispiel `zenohd -l tcp/0.0.0.0:7447`; die Windows-Firewall erlaubt den Port im
-privaten Netzwerk. Nach dem Flashen meldet der serielle Monitor nach DHCP den
-verwendeten Locator und entweder die erfolgreich geöffnete Zenoh-Session oder
-einen eindeutigen Fehlercode. Erst nach diesem Nachweis werden Key Expressions
-und die LED-Schnittstelle festgelegt.
+Auf dem Windows-Host läuft ein erreichbarer Zenoh-Router mit TCP-Listener. Die
+Repository-Helfer `scripts/start_zenohd.bat` für Windows und
+`./scripts/start_zenohd.sh` für WSL starten die lokale Installation unter
+`C:\Program Files\zenoh\zenohd.exe` verbindlich mit
+`-l tcp/0.0.0.0:7447`. Der explizite IPv4-Listener ist erforderlich, damit
+gleichzeitig der ESP32 über die WLAN-Adresse des Windows-Hosts und Dilbert aus
+WSL über die interne WSL-Host-Adresse verbinden können. Die Windows-Firewall
+erlaubt den Port eingehend. Nach dem Flashen meldet der serielle Monitor nach
+DHCP den verwendeten Locator und entweder die erfolgreich geöffnete
+Zenoh-Session oder einen eindeutigen Fehlercode. Erst nach diesem Nachweis
+werden Key Expressions und die LED-Schnittstelle festgelegt.
 
 ## Dilbert: interaktives Zenoh-Werkzeug
 
