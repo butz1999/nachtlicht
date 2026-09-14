@@ -1,3 +1,0 @@
-# Copy this file to zenoh.conf and set the LAN-reachable Windows address of zenohd.
-# zenoh.conf is intentionally ignored by Git.
-CONFIG_NACHTLICHT_ZENOH_ROUTER="tcp/192.168.1.42:7447"

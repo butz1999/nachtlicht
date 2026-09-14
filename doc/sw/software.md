@@ -530,11 +530,13 @@ der Entwicklung wird dafür `usbipd --auto-attach` verwendet.
 
 ### Ziel und Abgrenzung
 
-Der ESP32-S3 wird als Zenoh-Client ausgeführt und verbindet sich über TCP mit
-einem Zenoh-Router auf dem Windows-Host. Diese Stufe weist ausschließlich
-die Transport- und Session-Verbindung nach. Sie enthält noch keine Key
-Expression, keine Publish-/Subscribe- oder Query-/Reply-Operation und keine
-LED-Steuerung über Zenoh.
+Der ESP32-S3 wird als Zenoh-Client ausgeführt und erkennt einen Zenoh-Router
+im lokalen WLAN automatisch per Multicast-Scouting. Nach der Erkennung öffnet
+er die Zenoh-Session über den vom Router angekündigten TCP-Locator. Diese
+Stufe weist ausschließlich die Router-Erkennung sowie Transport- und
+Session-Verbindung nach. Sie enthält noch keine Key Expression, keine
+Publish-/Subscribe- oder Query-/Reply-Operation und keine LED-Steuerung über
+Zenoh.
 
 ### Schnittstelle und Ablauf
 
@@ -546,14 +548,17 @@ LED-Abläufe bleiben dadurch nicht blockiert. zenoh-pico startet bei der
 aktivierten Multithread-Konfiguration seine Hintergrundaufgaben nach einer
 erfolgreichen Session selbst.
 
-Der Router-Locator ist ein lokales Kconfig-Fragment `zenoh.conf`, da die
-Windows-LAN-Adresse installationsabhängig ist. `zenoh.conf.example` ist
-versioniert und erwartet einen expliziten TCP-Locator, beispielsweise
-`tcp/192.168.1.42:7447`; die echte Datei `zenoh.conf` ist von Git ausgeschlossen.
-`scripts/build.sh` übergibt vorhandene `wifi.conf` und `zenoh.conf` gemeinsam
-als zusätzliche Zephyr-Konfiguration. Der Windows-Router muss auf dieser
-Adresse und TCP-Port 7447 lauschen; WSL dient nur zum Bauen, Flashen und für
-den seriellen Monitor.
+Der ESP32 verwendet keinen fest konfigurierten Router-Locator mehr. Mit
+`CONFIG_ZENOH_PICO_LINK_UDP_MULTICAST=y`,
+`CONFIG_ZENOH_PICO_LINK_UDP_UNICAST=y` und
+`CONFIG_ZENOH_PICO_SCOUTING=y` sendet zenoh-pico nach erfolgreichem DHCP einen
+Scout per UDP an `224.0.0.224:7446`. Ein lokaler Router antwortet mit seinem
+TCP-Locator; `z_open()` öffnet anschließend die reguläre Client-Session. Die
+Router-Erkennung ist auf das lokale Layer-2-Netz begrenzt und funktioniert
+nicht über Router, VLAN-Grenzen oder WLANs, welche Multicast unterdrücken.
+`scripts/build.sh` übergibt daher nur noch die lokalen WLAN-Credentials aus
+`wifi.conf` als zusätzliche Zephyr-Konfiguration. WSL dient nur zum Bauen,
+Flashen und für den seriellen Monitor.
 
 ### Stand der Abhängigkeitsprüfung
 
@@ -586,8 +591,9 @@ an:
 
 Die Patches liegen versioniert unter `patches/zenoh-pico/`; das geklonte Modul
 wird durch ihre Anwendung absichtlich lokal verändert, sein Commit bleibt dabei
-unverändert. `prj.conf` aktiviert die Bibliothek, den Zephyr-TCP-Stack, ihr
-benötigtes Threading und das dafür erforderliche Zephyr-POSIX-Profil. Die
+unverändert. `prj.conf` aktiviert die Bibliothek, den Zephyr-TCP-,
+UDP-Multicast- und UDP-Unicast-Stack, ihr benötigtes Threading und das dafür erforderliche
+Zephyr-POSIX-Profil. Die
 Standardpools von Zephyr umfassen nur fünf POSIX-Mutexe und sind für eine
 zenoh-pico-Session zu klein. Deshalb reservieren wir bewusst acht POSIX-Threads,
 16 Mutexe und acht Condition Variables als statische Obergrenzen. Sie vermeiden
@@ -615,15 +621,16 @@ Branch und macht den Upstream-Status pro Release nachvollziehbar.
 
 ### Verifikation
 
-Auf dem Windows-Host läuft ein erreichbarer Zenoh-Router mit TCP-Listener. Die
+Auf dem Windows-Host läuft ein erreichbarer Zenoh-Router mit TCP-Listener und
+aktivem Multicast-Scouting auf UDP-Port 7446. Die
 Repository-Helfer `scripts/start_zenohd.bat` für Windows und
 `./scripts/start_zenohd.sh` für WSL starten die lokale Installation unter
 `C:\Program Files\zenoh\zenohd.exe` verbindlich mit
 `-l tcp/0.0.0.0:7447`. Der explizite IPv4-Listener ist erforderlich, damit
 gleichzeitig der ESP32 über die WLAN-Adresse des Windows-Hosts und Dilbert aus
 WSL über die interne WSL-Host-Adresse verbinden können. Die Windows-Firewall
-erlaubt den Port eingehend. Nach dem Flashen meldet der serielle Monitor nach
-DHCP den verwendeten Locator und entweder die erfolgreich geöffnete
+erlaubt TCP 7447 sowie UDP 7446 eingehend. Nach dem Flashen meldet der serielle
+Monitor nach DHCP den Start des Multicast-Scoutings und entweder die erfolgreich geöffnete
 Zenoh-Session oder einen eindeutigen Fehlercode. Erst nach diesem Nachweis
 werden Key Expressions und die LED-Schnittstelle festgelegt.
 
@@ -635,35 +642,49 @@ Dilbert ist das plattformübergreifende, interaktive Werkzeug für manuelle
 Zenoh-Experimente und einfache Bedienung. Es liegt als eigenständiger Ordner
 `dilbert/` im Projektstamm und besteht aus einem versionierten Jupyter-Notebook.
 Der Name folgt der im Projekt etablierten Bezeichnung für kleine,
-plattformübergreifende Bedienwerkzeuge. Das Notebook läuft in einer eigenen
-Python-Umgebung unter WSL; sein Frontend wird im Browser auf Windows bedient.
+plattformübergreifende Bedienwerkzeuge. Das Notebook liegt im WSL-Repository,
+läuft aber in einer eigenen nativen Windows-Python-Umgebung unter
+`%LOCALAPPDATA%\Nachtlicht\dilbert-venv`; sein Frontend wird im Browser auf
+Windows bedient.
 Solange Dilbert das einzige Host-Werkzeug ist, bleibt die Projektstruktur
 flach. Erst bei weiteren Werkzeugen wird eine gemeinsame Struktur unter
 `tools/` eingeführt.
 
 ```text
-Browser auf Windows → JupyterLab in WSL → Zenoh TCP → zenohd auf Windows → ESP32-S3
+Browser auf Windows → JupyterLab auf Windows → Zenoh Scouting (UDP-Multicast) → zenohd auf Windows → ESP32-S3
 ```
 
-Dilbert verwendet `eclipse-zenoh` als direkten Zenoh-Client und verbindet sich
-über den expliziten TCP-Locator mit dem bestehenden Windows-Router. Damit
-bleiben Firmware und Werkzeug gleichwertige Zenoh-Teilnehmer; weder ein
-eigener Webserver noch das Zenoh-REST-Plugin oder eine WebSocket-Bridge gehören
-zu dieser Ausbaustufe.
+Dilbert verwendet `eclipse-zenoh` als direkten Zenoh-Client und erkennt den
+bestehenden Router wie die Firmware per Multicast-Scouting automatisch. Der
+Scout wird per UDP an `224.0.0.224:7446` gesendet; der Router kündigt den
+anschließend verwendeten TCP-Locator an. Die Ausführung im nativen
+Windows-Netzwerk-Stack ist dafür wesentlich: Ein früherer Scout-Versuch aus
+WSL lief wegen der dortigen Netzwerkgrenze in einen Timeout. Es gibt nun weder
+eine feste Router-IP noch eine lokale Verbindungs-Konfigurationsdatei. Firmware
+und Werkzeug bleiben gleichwertige Zenoh-Teilnehmer; weder ein eigener
+Webserver noch das Zenoh-REST-Plugin oder eine WebSocket-Bridge gehören zu
+dieser Ausbaustufe.
 
 Das Notebook-Format erlaubt, jeden Versuch mit Erklärung, Python-Code und
 sichtbarem Ergebnis festzuhalten. Das `.ipynb` und sein Python-Code sind
 plattformübergreifend versionierbar. Die Virtual Environment selbst ist
 plattformabhängig und wird nicht versioniert; sie bleibt getrennt von der
 Zephyr-Toolchain, damit Python-Abhängigkeiten für Firmware-Build und Dilbert
-einander nicht beeinflussen. `dilbert/requirements.txt` beschreibt JupyterLab
-und `eclipse-zenoh`; `config.example.py` ist die versionierte Vorlage für den
-lokalen Router-Locator. Die daraus kopierte Datei `config.py` bleibt lokal und
-ist von Git ausgeschlossen.
+einander nicht beeinflussen. Die Windows-Umgebung liegt bewusst nicht im
+`\\wsl.localhost`-Pfad: Python-Pakete innerhalb einer virtuellen Umgebung
+werden dort von der verwendeten Windows-Python-Installation nicht zuverlässig
+gefunden. `dilbert/requirements.txt` beschreibt JupyterLab und
+`eclipse-zenoh` sowie `pyzmq` ab Version 27.2.0 und `rpds-py` ab Version
+0.27.1. Diese Mindestversionen liefern für die verwendete native
+Python-3.14-Installation vorkompilierte Windows-x64-Erweiterungen für Jupyters
+Kernel-Kommunikation und JSON-Schema-Verarbeitung. Weitere lokale
+Router-Konfiguration ist nicht erforderlich. `scripts/jupyter.sh` kann aus WSL aufgerufen
+werden, ermittelt `%LOCALAPPDATA%` über `cmd.exe` und startet damit die native
+Windows-Umgebung im WSL-Repository.
 
 ### Schnittstellen, GUI und Ablauf
 
-Dilbert öffnet eine explizit konfigurierte Session und deklariert einen
+Dilbert öffnet nach erfolgreichem Scouting eine Session und deklariert einen
 Publisher für `nachtlicht/led/color/next`. Ein `ipywidgets`-Button sendet als
 Text-Payload `next`; die Firmware prüft in dieser Ausbaustufe nur das
 Eintreffen einer gültigen Nachricht. Jede Nachricht fordert genau den Wechsel
@@ -701,7 +722,12 @@ Ist Dilbert nicht verbunden, gehen die flüchtigen Ereignisse verloren.
 Dilbert deklariert Subscriber für beide Ereignis-Keys. Die GUI zeigt die letzte
 gemeldete Farbe und Helligkeit sowie die Anzahl der in der aktuellen
 Notebook-Session empfangenen Ereignisse an. Updates aus Zenoh-Callbacks werden
-thread-sicher an die Jupyter-Ausgabe übergeben.
+thread-sicher an die Jupyter-Ausgabe übergeben. Beim Schließen beendet die
+Notebook-Zelle zuerst die asynchrone Empfangsaufgabe und wartet mit Top-Level
+`await` auf ihr Ende; erst danach werden Subscriber und Session beendet. Ein
+beim Schließen auftretender `ZError` eines bereits geschlossenen Kanals beendet
+die Empfangsaufgabe regulär. Dadurch bleibt keine unbeobachtete Python-Task
+zurück.
 
 `CONFIG_ZENOH_PICO_SUBSCRIPTION=y` und `CONFIG_ZENOH_PICO_PUBLICATION=y`
 aktivieren gezielt die benötigten zenoh-pico-APIs. Query und Queryable bleiben

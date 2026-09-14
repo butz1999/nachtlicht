@@ -7,13 +7,10 @@ source "$(dirname "$0")/lib/zephyr.sh"
 require_zephyr_environment
 "${project_root}/scripts/prepare_zenoh_pico.sh"
 
-extra_conf_files=()
-for config_file in "${project_root}/wifi.conf" "${project_root}/zenoh.conf"; do
-  if [[ -f "${config_file}" ]]; then
-    extra_conf_files+=("${config_file}")
-  fi
-done
-extra_conf_file="$(IFS=';'; echo "${extra_conf_files[*]}")"
+extra_conf_file=""
+if [[ -f "${project_root}/wifi.conf" ]]; then
+  extra_conf_file="${project_root}/wifi.conf"
+fi
 
 cd "${zephyr_workspace}"
 exec "${west_bin}" build -p "${WEST_PRISTINE:-auto}" \
