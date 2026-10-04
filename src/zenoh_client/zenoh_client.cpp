@@ -15,6 +15,8 @@ namespace
 constexpr char kColorNextKeyexpr[] = "nachtlicht/led/color/next";
 constexpr char kColorChangedKeyexpr[] = "nachtlicht/led/color/changed";
 constexpr char kBrightnessChangedKeyexpr[] = "nachtlicht/led/brightness/changed";
+constexpr char kPeerMode[] = "peer";
+constexpr char kPeerLocator[] = CONFIG_NACHTLICHT_ZENOH_P2P_PEER_LOCATOR;
 
 }  // namespace
 
@@ -35,12 +37,18 @@ void ZenohClient::initialize(ColorNextCallback color_next_callback, void *contex
 
 void ZenohClient::start()
 {
+  if (kPeerLocator[0] == '\0')
+  {
+    printk("Direct Zenoh peer locator is missing. Set it in zenoh.conf.\n");
+    return;
+  }
+
   if (start_requested_.exchange(true))
   {
     return;
   }
 
-  printk("Scouting for a Zenoh router on UDP multicast.\n");
+  printk("Opening direct Zenoh peer session to %s.\n", kPeerLocator);
   k_work_submit(&open_work_);
 }
 
@@ -51,6 +59,14 @@ void ZenohClient::open_session(struct k_work *work)
   z_owned_config_t config{};
   auto result = z_config_default(&config);
 
+  if (result == 0)
+  {
+    result = zp_config_insert(z_loan_mut(config), Z_CONFIG_MODE_KEY, kPeerMode);
+  }
+  if (result == 0)
+  {
+    result = zp_config_insert(z_loan_mut(config), Z_CONFIG_CONNECT_KEY, kPeerLocator);
+  }
   if (result == 0)
   {
     result = z_open(&client->session_, z_move(config), nullptr);

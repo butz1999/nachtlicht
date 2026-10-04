@@ -17,4 +17,11 @@ config NACHTLICHT_WIFI_PSK
 	  WPA2 pre-shared key of the Wi-Fi network used by the connectivity
 	  demonstration.
 
+config NACHTLICHT_ZENOH_P2P_PEER_LOCATOR
+	string "Direct Zenoh peer locator"
+	default ""
+	help
+	  TCP locator of the Dilbert peer used for the direct peer-to-peer
+	  demonstration. Set it in the ignored zenoh.conf file.
+
 endmenu

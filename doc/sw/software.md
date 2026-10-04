@@ -7,9 +7,10 @@ eine Arbeitsgrundlage und wird mit jeder Lernstufe präzisiert. Sie schreibt
 weder ein allgemeines Framework noch ein finales Produktprotokoll vor.
 
 Die bisherige Basis steuert die Onboard-WS2812, stellt eine WLAN-Verbindung
-mit DHCP her und kommuniziert über eine Zenoh-Session mit dem Router auf dem
-Windows-Host. Dilbert fordert interaktiv Farbwechsel an; der ESP32 meldet
-Farbwechsel und Helligkeitsänderungen als flüchtige Zenoh-Ereignisse zurück.
+mit DHCP her und kommuniziert in der aktuellen Versuchsvariante direkt mit
+Dilbert als Zenoh-Peer auf dem Windows-Host. Dilbert fordert interaktiv
+Farbwechsel an; der ESP32 meldet Farbwechsel und Helligkeitsänderungen als
+flüchtige Zenoh-Ereignisse zurück.
 zenoh-pico ist als gepinntes Zephyr-Modul mit drei dokumentierten Patches
 eingebunden. Home Assistant folgt erst nach diesem End-to-End-Nachweis.
 
@@ -526,17 +527,15 @@ Access Point und danach die von DHCP zugewiesene IPv4-Adresse erwartet. Bei
 einem Hardware-Reset muss die WSL-USB-Anbindung weiterhin aktiv sein; während
 der Entwicklung wird dafür `usbipd --auto-attach` verwendet.
 
-## Zenoh: erste Verbindungsprobe
+## Zenoh: direkter TCP-Peer-Test
 
 ### Ziel und Abgrenzung
 
-Der ESP32-S3 wird als Zenoh-Client ausgeführt und erkennt einen Zenoh-Router
-im lokalen WLAN automatisch per Multicast-Scouting. Nach der Erkennung öffnet
-er die Zenoh-Session über den vom Router angekündigten TCP-Locator. Diese
-Stufe weist ausschließlich die Router-Erkennung sowie Transport- und
-Session-Verbindung nach. Sie enthält noch keine Key Expression, keine
-Publish-/Subscribe- oder Query-/Reply-Operation und keine LED-Steuerung über
-Zenoh.
+Der ESP32-S3 und Dilbert werden als Zenoh-Peers ausgeführt und kommunizieren
+direkt über eine TCP-Verbindung. `zenohd` ist für diesen Versuch bewusst nicht
+beteiligt. Die bestehende Publish-/Subscribe-Schnittstelle für Farbwechsel und
+LED-Ereignisse bleibt unverändert; nachgewiesen wird allein ein anderer
+Transportweg.
 
 ### Schnittstelle und Ablauf
 
@@ -548,17 +547,22 @@ LED-Abläufe bleiben dadurch nicht blockiert. zenoh-pico startet bei der
 aktivierten Multithread-Konfiguration seine Hintergrundaufgaben nach einer
 erfolgreichen Session selbst.
 
-Der ESP32 verwendet keinen fest konfigurierten Router-Locator mehr. Mit
-`CONFIG_ZENOH_PICO_LINK_UDP_MULTICAST=y`,
-`CONFIG_ZENOH_PICO_LINK_UDP_UNICAST=y` und
-`CONFIG_ZENOH_PICO_SCOUTING=y` sendet zenoh-pico nach erfolgreichem DHCP einen
-Scout per UDP an `224.0.0.224:7446`. Ein lokaler Router antwortet mit seinem
-TCP-Locator; `z_open()` öffnet anschließend die reguläre Client-Session. Die
-Router-Erkennung ist auf das lokale Layer-2-Netz begrenzt und funktioniert
-nicht über Router, VLAN-Grenzen oder WLANs, welche Multicast unterdrücken.
-`scripts/build.sh` übergibt daher nur noch die lokalen WLAN-Credentials aus
-`wifi.conf` als zusätzliche Zephyr-Konfiguration. WSL dient nur zum Bauen,
-Flashen und für den seriellen Monitor.
+Dilbert öffnet als Peer den Listener `tcp/0.0.0.0:7447`; der ESP32 öffnet nach
+DHCP als Peer eine TCP-Verbindung dorthin. Der ESP verwendet dafür zunächst
+einen bewusst festen Locator aus der lokalen, nicht versionierten Datei
+`zenoh.conf`. `scripts/build.sh` übergibt `wifi.conf` und, wenn vorhanden,
+`zenoh.conf` als zusätzliche Zephyr-Konfiguration. Die Vorlage
+`zenoh.conf.example` enthält den erforderlichen Eintrag:
+
+```ini
+CONFIG_NACHTLICHT_ZENOH_P2P_PEER_LOCATOR="tcp/10.0.0.63:7447"
+```
+
+Die IPv4-Adresse ist die aktuelle WLAN-Adresse des Windows-Hosts, nicht die
+WSL-Host-Adresse. Bei einem Netzwechsel wird sie vor dem Build angepasst. Die
+spätere mDNS-Variante soll dieses manuelle Nachführen ersetzen, ist aber nicht
+Teil dieses klar abgegrenzten Tests. WSL dient weiterhin nur zum Bauen, Flashen
+und für den seriellen Monitor.
 
 ### Stand der Abhängigkeitsprüfung
 
@@ -621,18 +625,14 @@ Branch und macht den Upstream-Status pro Release nachvollziehbar.
 
 ### Verifikation
 
-Auf dem Windows-Host läuft ein erreichbarer Zenoh-Router mit TCP-Listener und
-aktivem Multicast-Scouting auf UDP-Port 7446. Die
-Repository-Helfer `scripts/start_zenohd.bat` für Windows und
-`./scripts/start_zenohd.sh` für WSL starten die lokale Installation unter
-`C:\Program Files\zenoh\zenohd.exe` verbindlich mit
-`-l tcp/0.0.0.0:7447`. Der explizite IPv4-Listener ist erforderlich, damit
-gleichzeitig der ESP32 über die WLAN-Adresse des Windows-Hosts und Dilbert aus
-WSL über die interne WSL-Host-Adresse verbinden können. Die Windows-Firewall
-erlaubt TCP 7447 sowie UDP 7446 eingehend. Nach dem Flashen meldet der serielle
-Monitor nach DHCP den Start des Multicast-Scoutings und entweder die erfolgreich geöffnete
-Zenoh-Session oder einen eindeutigen Fehlercode. Erst nach diesem Nachweis
-werden Key Expressions und die LED-Schnittstelle festgelegt.
+Für den Test ist `zenohd` beendet. Dilbert lauscht im nativen Windows-
+Netzwerkstack auf TCP-Port 7447; die Windows-Firewall muss deshalb eingehendes
+TCP 7447 für die Windows-Python-Umgebung erlauben. Nach dem Flashen meldet der
+serielle Monitor nach DHCP den direkten Peer-Locator und entweder die
+erfolgreich geöffnete Zenoh-Session oder einen eindeutigen Fehlercode. Der
+Router-basierte Weg und die Helfer `start_zenohd.bat` beziehungsweise
+`start_zenohd.sh` bleiben für spätere Vergleichsversuche erhalten, werden hier
+aber nicht gestartet.
 
 ## Dilbert: interaktives Zenoh-Werkzeug
 
@@ -651,19 +651,15 @@ flach. Erst bei weiteren Werkzeugen wird eine gemeinsame Struktur unter
 `tools/` eingeführt.
 
 ```text
-Browser auf Windows → JupyterLab auf Windows → Zenoh Scouting (UDP-Multicast) → zenohd auf Windows → ESP32-S3
+Browser auf Windows → JupyterLab/Dilbert als Zenoh-Peer → TCP → ESP32-S3 als Zenoh-Peer
 ```
 
-Dilbert verwendet `eclipse-zenoh` als direkten Zenoh-Client und erkennt den
-bestehenden Router wie die Firmware per Multicast-Scouting automatisch. Der
-Scout wird per UDP an `224.0.0.224:7446` gesendet; der Router kündigt den
-anschließend verwendeten TCP-Locator an. Die Ausführung im nativen
-Windows-Netzwerk-Stack ist dafür wesentlich: Ein früherer Scout-Versuch aus
-WSL lief wegen der dortigen Netzwerkgrenze in einen Timeout. Es gibt nun weder
-eine feste Router-IP noch eine lokale Verbindungs-Konfigurationsdatei. Firmware
-und Werkzeug bleiben gleichwertige Zenoh-Teilnehmer; weder ein eigener
-Webserver noch das Zenoh-REST-Plugin oder eine WebSocket-Bridge gehören zu
-dieser Ausbaustufe.
+Dilbert verwendet `eclipse-zenoh` als direkten Zenoh-Peer und lauscht auf
+`tcp/0.0.0.0:7447`. Der ESP32 verbindet sich mit diesem Listener über den
+lokal konfigurierten TCP-Locator. Die Ausführung im nativen
+Windows-Netzwerkstack ist weiterhin wesentlich, weil der ESP32 den Windows-
+Listener erreichen muss. Der Router, Multicast-Scouting sowie eine
+WebSocket-Bridge gehören nicht zu dieser Ausbaustufe.
 
 Das Notebook-Format erlaubt, jeden Versuch mit Erklärung, Python-Code und
 sichtbarem Ergebnis festzuhalten. Das `.ipynb` und sein Python-Code sind

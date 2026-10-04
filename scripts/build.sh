@@ -12,6 +12,13 @@ if [[ -f "${project_root}/wifi.conf" ]]; then
   extra_conf_file="${project_root}/wifi.conf"
 fi
 
+if [[ -f "${project_root}/zenoh.conf" ]]; then
+  if [[ -n "${extra_conf_file}" ]]; then
+    extra_conf_file+=";"
+  fi
+  extra_conf_file+="${project_root}/zenoh.conf"
+fi
+
 cd "${zephyr_workspace}"
 exec "${west_bin}" build -p "${WEST_PRISTINE:-auto}" \
   -d "${build_dir}" \

@@ -11,10 +11,10 @@ __pycache__/
 # Local Wi-Fi credentials
 /wifi.conf
 
-# Local Zenoh router endpoint
+# Local Zenoh peer endpoint
 /zenoh.conf
 
-# Local Dilbert environment and router endpoint
+# Local Dilbert environment
 /dilbert/.venv/
 /dilbert/config.py
 /dilbert/.ipynb_checkpoints/

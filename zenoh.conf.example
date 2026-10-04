@@ -1,0 +1,3 @@
+# Copy this file to zenoh.conf and replace the address with the current
+# Windows Wi-Fi address running Dilbert. zenoh.conf is intentionally ignored.
+CONFIG_NACHTLICHT_ZENOH_P2P_PEER_LOCATOR="tcp/10.0.0.63:7447"
